@@ -8,9 +8,12 @@ Status: Accepted
 Many organisations already run an LLM gateway, most often LiteLLM, and will not put a second
 proxy in front of it. LiteLLM routes, balances, caches and keeps keys, teams and budgets, but
 its FinOps record has the gaps this project was built to close: a model missing from its price
-map is forwarded and logged at zero cost (and a zero-cost model skips the budget checks), the
+map is still served and logged at zero spend (flagged by a warning and a Prometheus counter,
+but never charged to a budget; a model priced at zero skips the budget checks by design), the
 owner of a call is the key or team and nothing finer, prices live in the product rather than
-in a reviewed file, and nothing reconciles the log against the bill. The LiteLLM proxy exposes
+in a reviewed file, and nothing reconciles the log against the bill. LiteLLM does reserve the
+estimated cost before the call, so the concurrency guarantee of ADR-0007 is not one of the
+gaps (checked against the LiteLLM documentation on 2026-11-13). The LiteLLM proxy exposes
 hooks that run before and after every call, so the rules of ADR-0002, 0003, 0005 and 0007 can
 run inside it without a second network hop.
 

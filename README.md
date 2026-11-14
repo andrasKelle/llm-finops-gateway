@@ -99,7 +99,7 @@ narrower and FinOps-first. The differences that matter for a finance or platform
 | Price list | Versioned YAML in git; every ledger row records the version it was priced with, so last quarter's chargeback can be recomputed | Built-in price table updated with the software; historical cost is whatever was computed at the time |
 | Unknown model | Rejected before the upstream call | Usually forwarded and logged with zero or missing cost |
 | Who is calling | Team-bound keys, hashes in git, `key_id` on every ledger row and trace | Virtual keys in a database or admin UI |
-| Budgets | Per team, warn and block thresholds, warn-only mode, atomic reservation, declared in YAML and reviewed in PRs | Per key, hard cap, configured in an admin UI or API |
+| Budgets | Per team and per project, warn and block thresholds with the warning in the response, warn-only mode, atomic reservation, declared in YAML and reviewed in PRs | Per key, team or user, hard cap, some with soft-budget alerts and a pre-call reservation (LiteLLM); configured in an admin UI or API, not in a reviewed file |
 | Evaluation | Replay and regression scoring on recorded calls (roadmap) | Out of scope; separate observability product |
 | Routing, caching, fallbacks | Out of scope; run this behind a router if you need them | Core feature |
 

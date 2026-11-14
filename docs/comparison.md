@@ -1,13 +1,13 @@
 # How this compares to existing LLM gateways
 
-Last reviewed: 2026-10. Vendor features change quickly; treat this as a snapshot and open a PR
-if something is out of date.
+Last reviewed: 2026-11-13 (LiteLLM row and the budget point), 2026-10 for the rest. Vendor
+features change quickly; treat this as a snapshot and open a PR if something is out of date.
 
 ## The field
 
 | Tool | Licence / model | Cost and budget features (as documented by the vendor or reviews) |
 | --- | --- | --- |
-| LiteLLM | Open source proxy, paid enterprise tier | `max_budget` per API key that blocks requests when exhausted, per-request cost from a bundled price table, fallbacks and retries, logging to observability back ends |
+| LiteLLM | Open source proxy, paid enterprise tier | `max_budget` per key, team, team member, user, organisation, end user and tag, with `soft_budget` alerts and `budget_duration` resets; the estimated cost is reserved before the call and replaced by the actual cost after; per-request cost from a bundled price table, a model missing from it is served and logged at zero spend (flagged by a warning and a Prometheus counter); fallbacks and retries, logging to observability back ends |
 | Bifrost (Maxim AI) | Open source core, enterprise tier | Virtual keys with budgets and rate limits by model, provider and time window; logs broken down by key, model, provider, region; audit logs and log export in the enterprise tier |
 | Portkey | MIT gateway, closed managed tier | Virtual keys, cost panels per provider and key, budgets |
 | Helicone | Apache 2.0, self-hostable | Cost dashboards by provider, model and user; no budget caps documented |
@@ -23,8 +23,8 @@ Independent write-ups of the gateway category point at the same three things:
 
 - **Chargeback is manual.** Keys are not cost centres. Turning per-key usage into a report
   finance accepts means reconciling logs by hand.
-- **Budgets are coarse.** Per-key or account-level caps, rarely per team and project with a
-  use-case dimension.
+- **Budgets are coarse.** Per-key, per-team or account-level caps, rarely per project with a
+  use-case dimension, and rarely a warning the caller sees in the response.
 - **Pricing is not versioned and policy is not code.** The price table lives inside the product
   and changes with upgrades; policy lives in an admin UI. Neither is reviewable in a pull
   request or reproducible after the fact.
@@ -45,7 +45,9 @@ Independent write-ups of the gateway category point at the same three things:
    mode, model allow-lists and requests-per-minute limits in `config/policies.yaml`, keyed on
    the same attribution dimensions, reviewed like any other change. Budgets are enforced by
    an atomic reservation of the estimated cost, so the limit holds under concurrency
-   (ADR-0007).
+   (ADR-0007). LiteLLM reserves before the call as well; the difference is the project and
+   use-case dimensions, the warning carried in the response, warn-only mode, and the file in
+   git.
 5. **Evaluation replay (ADR-0009, proposed).** Recorded calls can be re-run against a new model or prompt to
    measure quality and cost regression together, which the gateway category leaves to separate
    tools.

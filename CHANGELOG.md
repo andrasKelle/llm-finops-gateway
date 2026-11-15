@@ -8,7 +8,12 @@ is called out here.
 ## [Unreleased]
 
 ### Added
-- Nothing yet.
+- Budgets per model (ADR-0025): `model_budgets` on a team or a registered project, same keys as
+  `budget`, reserved after the team's and the project's and settled with the ledger row. The
+  state travels as `x_finops.policy.model_budget`, the `X-FinOps-Model-Budget-*` headers and
+  `model_budgets` in `/v1/finops/budgets`; the LiteLLM plugin inherits it. The `team` column of
+  `budget_counters` is widened to 255 characters for the new scope keys (existing PostgreSQL
+  databases: see `docs/database.md`).
 
 ## [0.3.1] - 2026-11-12
 

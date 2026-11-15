@@ -533,3 +533,163 @@ def test_http_project_budget_in_headers_and_body(
         assert projects["narrow"]["allowed_models"] == ["free"]
         assert projects["internal-tools"]["allowed_models"] == ["*"]
         assert teams["open"]["projects"] is None
+
+
+# ---- per-model budgets (ADR-0025) --------------------------------------------------------
+
+MODEL_BUDGETS_YAML = """\
+version: model-budgets
+defaults:
+  allowed_models: ["*"]
+teams:
+  product:
+    budget: {monthly_usd: 1, warn_at: 0.5, block_at: 1.0}
+    model_budgets:
+      priced: {monthly_usd: 0.02, warn_at: 0.5, block_at: 1.0}
+    projects:
+      chat-assistant:
+        model_budgets:
+          priced: {monthly_usd: 0.05, warn_at: 0.5, block_at: 1.0}
+      internal-tools: {}
+  open:
+    model_budgets:
+      priced: {monthly_usd: 0.015, enforcement: warn}
+"""
+
+
+@pytest.fixture
+def model_engine(tmp_path: Path, ledger: Ledger) -> PolicyEngine:
+    path = tmp_path / "model-budgets.yaml"
+    path.write_text(MODEL_BUDGETS_YAML)
+    return PolicyEngine(PolicySet.from_yaml(path), ledger)
+
+
+def test_model_budget_is_reserved_and_settled_next_to_the_team(
+    model_engine: PolicyEngine, ledger: Ledger
+) -> None:
+    d = model_engine.check(_attr("internal-tools"), "priced", EST)
+    assert d.allowed and d.model_budget is not None and d.model_scope == "product/model/priced"
+    assert d.reserved_usd == EST and d.model_reserved_usd == EST and d.project_budget is None
+    assert ledger.counter("product/model/priced").reserved_usd == EST
+    assert d.model_budget.used_pct == Decimal("50.0") and d.model_budget.level == "warn"
+    assert d.warnings and d.warnings[0].startswith("model 'priced' of team 'product'")
+
+    entry = CostEntry(
+        request_id="m1",
+        team="product",
+        project="internal-tools",
+        use_case="faq",
+        provider="fake",
+        model="priced",
+        input_tokens=1,
+        output_tokens=1,
+        cost_usd=Decimal("0.005"),
+        price_book_version="v",
+    )
+    ledger.record(
+        entry,
+        release_reserved=d.reserved_usd,
+        model_scope=d.model_scope,
+        model_reserved=d.model_reserved_usd,
+    )
+    c = ledger.counter("product/model/priced")
+    assert c.reserved_usd == 0 and c.spent_usd == Decimal("0.005")
+    assert ledger.counter("product").spent_usd == Decimal("0.005")
+    status = model_engine.model_budget_status("product", "internal-tools", "priced")
+    assert status is not None and status.used_pct == Decimal("25.0")
+    assert model_engine.model_budget_status("product", "internal-tools", "free") is None
+
+
+def test_model_without_a_budget_is_only_bound_by_the_team(model_engine: PolicyEngine) -> None:
+    d = model_engine.check(_attr("internal-tools"), "free", EST)
+    assert d.allowed and d.model_budget is None and d.model_scope is None
+    assert d.model_reserved_usd == 0
+
+
+def test_model_budget_blocks_and_releases_the_other_reservations(
+    model_engine: PolicyEngine, ledger: Ledger
+) -> None:
+    ledger.reserve("product/model/priced", Decimal("0.015"), None)  # 75% in flight already
+    d = model_engine.check(_attr("internal-tools"), "priced", EST)  # EST 0.01 exceeds 0.02
+    assert not d.allowed and d.violation == "budget_exceeded"
+    assert d.model_budget is not None and d.model_budget.level == "block"
+    assert d.budget is not None and d.budget.level == "ok"
+    assert "model 'priced' of team 'product'" in (d.message or "")
+    assert ledger.counter("product").reserved_usd == 0
+    assert ledger.counter("product/model/priced").reserved_usd == Decimal("0.015")
+
+
+def test_project_model_budget_replaces_the_team_entry_for_that_project(
+    model_engine: PolicyEngine, ledger: Ledger
+) -> None:
+    d = model_engine.check(_attr("chat-assistant"), "priced", EST)
+    assert d.allowed and d.model_scope == "product/chat-assistant/model/priced"
+    assert d.model_budget is not None and d.model_budget.limit_usd == Decimal("0.05")
+    assert d.model_budget.level == "ok" and not d.warnings
+    assert ledger.counter("product/chat-assistant/model/priced").reserved_usd == EST
+    assert ledger.counter("product/model/priced").reserved_usd == 0
+
+
+def test_warn_only_model_budget_never_blocks(model_engine: PolicyEngine, ledger: Ledger) -> None:
+    ledger.reserve("open/model/priced", Decimal("0.02"), None)
+    d = model_engine.check(_attr("anything", team="open"), "priced", EST)
+    assert d.allowed and d.budget is None and d.model_budget is not None
+    assert d.model_budget.level == "warn" and "enforcement is warn-only" in d.warnings[0]
+
+
+def test_http_model_budget_in_headers_body_and_report(
+    tmp_path: Path,
+    price_book: PriceBook,
+    pricing_path: Path,
+    ledger: Ledger,
+    fake_provider: FakeProvider,
+) -> None:
+    path = tmp_path / "model-budgets.yaml"
+    path.write_text(MODEL_BUDGETS_YAML)
+    settings = Settings(
+        provider=ProviderKind.OLLAMA,
+        auth_mode="headers",
+        pricing_path=pricing_path,
+        database_url="sqlite:///:memory:",
+    )
+    app = create_app(
+        settings,
+        price_book=price_book,
+        policies=PolicySet.from_yaml(path),
+        keyring=KeyRing.empty(),
+        ledger=ledger,
+        provider=fake_provider,
+    )
+    with TestClient(app) as c:
+        hdr = {"X-Team": "product", "X-Project": "internal-tools"}
+        r = c.post("/v1/chat/completions", json=BODY, headers=hdr)
+        assert r.status_code == 200
+        assert r.headers["X-FinOps-Model-Budget-Limit-USD"] == "0.02"
+        # the pre-call estimate (51 %) warned; the header shows the state after settling
+        assert r.headers["X-FinOps-Model-Budget-Status"] == "ok"
+        assert "model 'priced' of team 'product'" in r.headers["X-FinOps-Warning"]
+        policy = r.json()["x_finops"]["policy"]
+        assert policy["model_budget"]["limit_usd"] == "0.02"
+        assert policy["budget"]["limit_usd"] == "1" and policy["project_budget"] is None
+        c_model = ledger.counter("product/model/priced")
+        assert c_model.reserved_usd == 0 and c_model.spent_usd > 0
+
+        r = c.post("/v1/chat/completions", json={**BODY, "model": "free"}, headers=hdr)
+        assert "X-FinOps-Model-Budget-Limit-USD" not in r.headers
+
+        ledger.reserve("product/model/priced", Decimal("0.02"), None)
+        r = c.post("/v1/chat/completions", json=BODY, headers=hdr)
+        assert r.status_code == 403
+        detail = r.json()["detail"]
+        assert detail["error"] == "budget_exceeded"
+        assert detail["model_budget"]["level"] == "block" and detail["budget"]["level"] == "ok"
+        assert len(fake_provider.calls) == 2
+
+        # the budgets report lists the model budgets of the team and of the project
+        teams = {t["team"]: t for t in c.get("/v1/finops/budgets").json()["teams"]}
+        assert teams["product"]["model_budgets"]["priced"]["limit_usd"] == "0.02"
+        projects = {p["project"]: p for p in teams["product"]["projects"]}
+        assert projects["chat-assistant"]["model_budgets"]["priced"]["limit_usd"] == "0.05"
+        assert projects["internal-tools"]["model_budgets"] is None
+        assert teams["open"]["budget"] is None
+        assert teams["open"]["model_budgets"]["priced"]["enforcement"] == "warn"

@@ -39,13 +39,18 @@ alters tables. Adding a column later means an `ALTER TABLE` by hand, as the test
 
 No prompt or completion text, no headers, no client IP.
 
-### `budget_counters`: month-to-date per team
+### `budget_counters`: month-to-date per budget scope
 
 | Column | Type | Meaning |
 | --- | --- | --- |
-| `team`, `month` | varchar, PK | `month` is `YYYY-MM` in UTC |
+| `team`, `month` | varchar(255), PK | the scope key: team, `team/project` (ADR-0021) or a model scope `team/model/<model>`, `team/<project>/model/<model>` (ADR-0025); `month` is `YYYY-MM` in UTC |
 | `spent_usd` | numeric(14,8) | sum of recorded cost this month |
 | `reserved_usd` | numeric(14,8) | estimates reserved by calls in flight (ADR-0007) |
+
+Databases created before 0.4 have `team` as `varchar(64)`; PostgreSQL enforces the width, so
+widen it before using model budgets with long names:
+`ALTER TABLE budget_counters ALTER COLUMN team TYPE VARCHAR(255);` (`create_all` does not alter
+columns, see issue #58).
 
 Enforcement reads and updates this row with one conditional `UPDATE`; reports read
 `cost_records`. The two are updated in the same transaction when a call is recorded.

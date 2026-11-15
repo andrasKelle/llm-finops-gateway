@@ -11,6 +11,8 @@
 #   projects         optional registry (ADR-0021): when present, X-Project must be one of the keys;
 #                    each project may set its own budget (same keys as above), allowed_models
 #                    (narrows the team's list) and use_cases (then X-Use-Case must be one of them)
+#   model_budgets    optional map model name -> budget (same keys as budget), on a team or a
+#                    project (ADR-0025); a project's entry replaces the team's for that project
 #
 # A team not listed under `teams` gets `defaults`. A team entry overrides only the keys it sets.
 # Example of a registry:

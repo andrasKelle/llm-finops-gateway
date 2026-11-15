@@ -428,6 +428,8 @@ def create_app(
                 ),
                 release_reserved=decision.reserved_usd,
                 project_reserved=project_reserved,
+                model_scope=decision.model_scope,
+                model_reserved=decision.model_reserved_usd,
             )
             metrics.observe_cost(
                 attr.team, attr.project, req.model, cost, usage.input_tokens, usage.output_tokens
@@ -452,6 +454,8 @@ def create_app(
                 ledger.release(
                     project_scope(attr.team, attr.project), decision.project_reserved_usd
                 )
+            if decision.model_scope is not None and decision.model_reserved_usd:
+                ledger.release(decision.model_scope, decision.model_reserved_usd)
 
         def on_upstream_failure(exc: BaseException) -> str:
             release_reservations()
@@ -476,6 +480,9 @@ def create_app(
                     budget=_budget_envelope(status),
                     project_budget=_budget_envelope(
                         engine.project_budget_status(attr.team, attr.project)
+                    ),
+                    model_budget=_budget_envelope(
+                        engine.model_budget_status(attr.team, attr.project, req.model)
                     ),
                     warnings=decision.warnings,
                 ),
@@ -612,6 +619,7 @@ def create_app(
                 status,
                 decision.warnings,
                 engine.project_budget_status(attr.team, attr.project),
+                engine.model_budget_status(attr.team, attr.project, req.model),
             )
         )
         response.headers.update(
@@ -666,6 +674,12 @@ def create_app(
             total_cost_usd=money(sum((r.cost_usd for r in rows), start=Decimal(0))),
         )
 
+    def model_budget_envelopes(team: str, project: str | None) -> dict[str, BudgetEnvelope] | None:
+        states = engine.model_budget_states(team, project)
+        if states is None:
+            return None
+        return {m: BudgetEnvelope(**s.as_dict()) for m, s in states.items()}
+
     def budget_rows(team: str | None) -> list[TeamBudgetRow]:
         current: PolicySet = app.state.policies  # the version in service (ADR-0022)
         names = set(current.teams()) | {r.team for r in ledger.summary()}
@@ -689,6 +703,7 @@ def create_app(
                         ),
                         use_cases=proj.use_cases,
                         budget=_budget_envelope(engine.project_budget_status(name, pname)),
+                        model_budgets=model_budget_envelopes(name, pname),
                     )
                     for pname, proj in effective.projects.items()
                 ]
@@ -701,6 +716,7 @@ def create_app(
                     ),
                     budget=_budget_envelope(status),
                     projects=projects,
+                    model_budgets=model_budget_envelopes(name, None),
                 )
             )
         return rows

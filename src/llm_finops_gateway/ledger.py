@@ -62,7 +62,8 @@ class BudgetCounter(Base):
 
     __tablename__ = "budget_counters"
 
-    team: Mapped[str] = mapped_column(String(64), primary_key=True)
+    # a scope key: team, team/project or a model scope (ADR-0021, 0025), hence the width
+    team: Mapped[str] = mapped_column(String(255), primary_key=True)
     month: Mapped[str] = mapped_column(String(7), primary_key=True)  # YYYY-MM (UTC)
     spent_usd: Mapped[Decimal] = mapped_column(Numeric(14, 8), default=ZERO)
     reserved_usd: Mapped[Decimal] = mapped_column(Numeric(14, 8), default=ZERO)
@@ -157,9 +158,12 @@ class Ledger:
         release_reserved: Decimal = ZERO,
         *,
         project_reserved: Decimal | None = None,
+        model_scope: str | None = None,
+        model_reserved: Decimal = ZERO,
     ) -> None:
         """Insert the ledger row and settle the counters in one transaction: the team's
-        always, the project's (scope ``team/project``) when ``project_reserved`` is given."""
+        always, the project's (scope ``team/project``) when ``project_reserved`` is given, the
+        model budget's when ``model_scope`` is given (ADR-0025)."""
         ts = entry.ts or datetime.now(UTC)
         month = month_key(ts)
         with Session(self._engine) as session:
@@ -183,6 +187,8 @@ class Ledger:
             scopes = [(entry.team, release_reserved)]
             if project_reserved is not None:
                 scopes.append((f"{entry.team}/{entry.project}", project_reserved))
+            if model_scope is not None:
+                scopes.append((model_scope, model_reserved))
             for scope, release in scopes:
                 self._ensure_counter(session, scope, month)
                 session.execute(

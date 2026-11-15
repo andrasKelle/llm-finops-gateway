@@ -391,3 +391,42 @@ async def test_plugin_posts_the_same_webhook_alerts_as_the_gateway(
     assert (
         body["provider"] == "azure" and body["model"] == "gpt-4o-mini" and "boom" in body["message"]
     )
+
+
+MODEL_BUDGET_POLICIES = """\
+version: "model-budgets"
+defaults:
+  allowed_models: ["*"]
+teams:
+  product:
+    budget: { monthly_usd: 1, warn_at: 0.8, block_at: 1.0, reserve_output_tokens: 10 }
+    model_budgets:
+      gpt-4o-mini: { monthly_usd: 0.000005, warn_at: 0.5, block_at: 1.0 }
+"""
+
+
+async def test_model_budget_in_litellm_mode(tmp_path: Path, ledger: Ledger) -> None:
+    (tmp_path / "pricing.yaml").write_text(PRICING)
+    (tmp_path / "policies.yaml").write_text(MODEL_BUDGET_POLICIES)
+    p = FinOpsPlugin(
+        price_book=PriceBook.from_yaml(tmp_path / "pricing.yaml"),
+        policies=PolicySet.from_yaml(tmp_path / "policies.yaml"),
+        ledger=ledger,
+    )
+    k = key(team="product", alias="app")
+    data = await p.async_pre_call_hook(k, None, request(), "acompletion")
+    assert data is not None
+    assert ledger.counter("product/model/gpt-4o-mini").reserved_usd > 0
+    headers = await p.async_post_call_response_headers_hook(data, k, response())
+    assert headers is not None
+    assert headers["X-FinOps-Model-Budget-Limit-USD"] == "0.000005"
+    assert headers["X-FinOps-Model-Budget-Status"] == "ok"
+    c = ledger.counter("product/model/gpt-4o-mini")
+    assert c.reserved_usd == 0 and c.spent_usd == Decimal("0.00000195")
+
+    ledger.reserve("product/model/gpt-4o-mini", Decimal("0.000005"), None)
+    with pytest.raises(HTTPException) as exc:
+        await p.async_pre_call_hook(k, None, request(), "acompletion")
+    assert exc.value.status_code == 403
+    assert detail_of(exc.value)["model_budget"]["level"] == "block"
+    assert ledger.counter("product").reserved_usd == 0

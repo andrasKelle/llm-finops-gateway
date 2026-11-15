@@ -379,6 +379,27 @@ holds only what pricing needs: team, project, use case, model, tokens, cost and 
 version. Prompts and completions are never stored. Teams without a `projects` map keep the
 free-text behaviour (ADR-0021).
 
+### Budgets per model
+
+A team or a project can cap one model next to its overall budget (ADR-0025):
+
+```yaml
+teams:
+  product:
+    allowed_models: ["gpt-4.1-mini", "gpt-5"]
+    budget: { monthly_usd: 500 }
+    model_budgets:
+      gpt-5: { monthly_usd: 50, warn_at: 0.8, block_at: 1.0 }   # at most 50 of the 500 on gpt-5
+    projects:
+      research:
+        model_budgets:
+          gpt-5: { monthly_usd: 20 }                            # replaces the team's entry for this project
+```
+
+The model budget is reserved after the team's and the project's (all must fit), its state
+travels as `x_finops.policy.model_budget` and the `X-FinOps-Model-Budget-*` headers, and
+`/v1/finops/budgets` lists `model_budgets` per team and per project.
+
 ### Edits take effect without a restart
 
 The gateway and the plugin watch `pricing.yaml` and `policies.yaml`: a merged pull request is

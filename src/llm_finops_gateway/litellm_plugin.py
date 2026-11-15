@@ -59,6 +59,8 @@ class _Pending:
     reserved_usd: Decimal
     warnings: list[str] = field(default_factory=list)
     project_reserved_usd: Decimal | None = None  # None: the project has no budget of its own
+    model_scope: str | None = None  # counter key of the model budget that applied (ADR-0025)
+    model_reserved_usd: Decimal = Decimal(0)
     created: float = field(default_factory=time.monotonic)
 
 
@@ -275,6 +277,8 @@ class FinOpsPlugin(CustomLogger):
             decision.reserved_usd,
             list(decision.warnings),
             decision.project_reserved_usd if decision.project_budget is not None else None,
+            decision.model_scope,
+            decision.model_reserved_usd,
         )
         data.setdefault("metadata", {})[META] = {"request_id": request_id, "team": attr.team}
         return data
@@ -292,6 +296,8 @@ class FinOpsPlugin(CustomLogger):
                 project_scope(pending.attr.team, pending.attr.project),
                 pending.project_reserved_usd,
             )
+        if pending.model_scope is not None and pending.model_reserved_usd:
+            ledger.release(pending.model_scope, pending.model_reserved_usd)
 
     # ---- step 4 and 5: settle, headers ------------------------------------------------
 
@@ -324,6 +330,8 @@ class FinOpsPlugin(CustomLogger):
             ),
             release_reserved=pending.reserved_usd,
             project_reserved=pending.project_reserved_usd,
+            model_scope=pending.model_scope,
+            model_reserved=pending.model_reserved_usd,
         )
         log.info(
             "settled request_id=%s team=%s project=%s model=%s cost=%s litellm_cost=%s",
@@ -355,6 +363,10 @@ class FinOpsPlugin(CustomLogger):
     def _project_status(self, pending: _Pending) -> BudgetStatus | None:
         return self._ensure()[1].project_budget_status(pending.attr.team, pending.attr.project)
 
+    def _model_status(self, pending: _Pending) -> BudgetStatus | None:
+        attr = pending.attr
+        return self._ensure()[1].model_budget_status(attr.team, attr.project, pending.model)
+
     @staticmethod
     def _meta(container: dict[str, Any] | None) -> dict[str, Any] | None:
         meta = (container or {}).get("metadata") or {}
@@ -384,13 +396,23 @@ class FinOpsPlugin(CustomLogger):
             provider = str(hidden.get("custom_llm_provider") or "litellm")
             cost, status = self._settle(pending, usage, provider)
             headers.update(cost_headers(request_id, cost, book.currency, usage.cached_input_tokens))
-            headers.update(budget_headers(status, pending.warnings, self._project_status(pending)))
+            headers.update(
+                budget_headers(
+                    status,
+                    pending.warnings,
+                    self._project_status(pending),
+                    self._model_status(pending),
+                )
+            )
         else:
             # Streaming: the cost is settled from the success event once the stream ends.
             warnings = pending.warnings if pending is not None else []
             project_status = self._project_status(pending) if pending is not None else None
+            model_status = self._model_status(pending) if pending is not None else None
             headers.update(
-                budget_headers(engine.budget_status(str(meta["team"])), warnings, project_status)
+                budget_headers(
+                    engine.budget_status(str(meta["team"])), warnings, project_status, model_status
+                )
             )
         return headers
 

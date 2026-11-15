@@ -9,6 +9,8 @@ attribution dimensions. Supported policy types:
   ``enforcement: warn`` turns blocking off for a team. The budget is enforced with an atomic
   reservation of the call's estimated cost before the upstream call (ADR-0007), so two
   concurrent calls cannot both slip past the limit;
+* **per-model budget** (``model_budgets``) on a team or a registered project (ADR-0025): the
+  same budget shape, keyed by model name, reserved next to the team's and the project's;
 * **rate limit** per team (``rate_limit.requests_per_minute``), HTTP 429 with ``Retry-After``.
   Sliding window, in memory, per gateway instance.
 """
@@ -78,6 +80,7 @@ class ProjectPolicy(BaseModel):
     allowed_models: list[str] | None = None
     budget: BudgetPolicy | None = None
     use_cases: list[str] | None = None
+    model_budgets: dict[str, BudgetPolicy] | None = None
 
     def allows_model(self, model: str) -> bool:
         return (
@@ -99,6 +102,7 @@ class TeamPolicy(BaseModel):
     budget: BudgetPolicy | None = None
     rate_limit: RateLimitPolicy | None = None
     projects: dict[str, ProjectPolicy] | None = None
+    model_budgets: dict[str, BudgetPolicy] | None = None
 
 
 class EffectivePolicy(BaseModel):
@@ -111,9 +115,21 @@ class EffectivePolicy(BaseModel):
     budget: BudgetPolicy | None
     rate_limit: RateLimitPolicy | None
     projects: dict[str, ProjectPolicy] | None = None
+    model_budgets: dict[str, BudgetPolicy] | None = None
 
     def allows_model(self, model: str) -> bool:
         return "*" in self.allowed_models or model in self.allowed_models
+
+    def model_budget(
+        self, project: ProjectPolicy, model: str
+    ) -> tuple[str | None, BudgetPolicy] | None:
+        """The budget that applies to ``model`` and its counter scope (ADR-0025): the project's
+        entry when the project declares one for the model, else the team's, else ``None``."""
+        if project.model_budgets is not None and model in project.model_budgets:
+            return "project", project.model_budgets[model]
+        if self.model_budgets is not None and model in self.model_budgets:
+            return None, self.model_budgets[model]
+        return None
 
     def project(self, name: str) -> ProjectPolicy | None:
         """The registered project, or ``None`` when the team keeps a registry and the name is
@@ -160,6 +176,9 @@ class PolicyDecision:
     retry_after_seconds: int | None = None
     project_budget: BudgetStatus | None = None
     project_reserved_usd: Decimal = Decimal(0)
+    model_budget: BudgetStatus | None = None
+    model_scope: str | None = None  # counter key of the model budget that applied (ADR-0025)
+    model_reserved_usd: Decimal = Decimal(0)
 
 
 class PolicySet:
@@ -202,18 +221,30 @@ class PolicySet:
         )
         budget = override.budget if override.budget is not None else self._defaults.budget
         rate = override.rate_limit if override.rate_limit is not None else self._defaults.rate_limit
+        model_budgets = (
+            override.model_budgets
+            if override.model_budgets is not None
+            else self._defaults.model_budgets
+        )
         return EffectivePolicy(
             team=team,
             allowed_models=list(allowed),
             budget=budget,
             rate_limit=rate,
             projects=override.projects,
+            model_budgets=model_budgets,
         )
 
 
 def project_scope(team: str, project: str) -> str:
     """Counter key of a project budget (ADR-0021): the team's counter is keyed by the team."""
     return f"{team}/{project}"
+
+
+def model_scope(team: str, project: str | None, model: str) -> str:
+    """Counter key of a model budget (ADR-0025): ``team/model/<model>`` for the team's entry,
+    ``team/<project>/model/<model>`` for a project's. Project names cannot contain ``/``."""
+    return f"{team}/model/{model}" if project is None else f"{team}/{project}/model/{model}"
 
 
 def month_start(now: datetime | None = None) -> datetime:
@@ -313,6 +344,34 @@ class PolicyEngine:
         c = self._ledger.counter(project_scope(team, project))
         return _status(proj.budget, c.spent_usd, c.reserved_usd)
 
+    def model_budget_status(self, team: str, project: str, model: str) -> BudgetStatus | None:
+        policy = self._policies.resolve(team)
+        proj = policy.project(project) or ProjectPolicy()
+        found = policy.model_budget(proj, model)
+        if found is None:
+            return None
+        level, budget = found
+        c = self._ledger.counter(model_scope(team, project if level else None, model))
+        return _status(budget, c.spent_usd, c.reserved_usd)
+
+    def model_budget_states(
+        self, team: str, project: str | None = None
+    ) -> dict[str, BudgetStatus] | None:
+        """State of every model budget declared on the team (``project`` None) or on one of
+        its registered projects, for the budgets report."""
+        policy = self._policies.resolve(team)
+        budgets = policy.model_budgets
+        if project is not None:
+            proj = (policy.projects or {}).get(project)
+            budgets = proj.model_budgets if proj is not None else None
+        if budgets is None:
+            return None
+        states = {}
+        for m, b in budgets.items():
+            c = self._ledger.counter(model_scope(team, project, m))
+            states[m] = _status(b, c.spent_usd, c.reserved_usd)
+        return states
+
     def check(self, attr: Attribution, model: str, estimate: Decimal) -> PolicyDecision:
         """Pre-call evaluation: allow-list, rate limit, then budget reservation.
 
@@ -395,7 +454,8 @@ class PolicyEngine:
 
         budget = policy.budget
         project_budget = proj.budget
-        if budget is None and project_budget is None:
+        model_budget = policy.model_budget(proj, model)
+        if budget is None and project_budget is None and model_budget is None:
             return PolicyDecision(allowed=True)
 
         warnings: list[str] = []
@@ -432,6 +492,36 @@ class PolicyEngine:
                 warnings.append(warning)
             reserved_project = estimate
 
+        model_status: BudgetStatus | None = None
+        scope_model: str | None = None
+        reserved_model = Decimal(0)
+        if model_budget is not None:
+            level, mbudget = model_budget
+            owner = (
+                f"project '{attr.project}' of team '{attr.team}'"
+                if level
+                else f"team '{attr.team}'"
+            )
+            who = f"model '{model}' of {owner}"
+            scope_model = model_scope(attr.team, attr.project if level else None, model)
+            ok, model_status, warning = self._reserve(scope_model, mbudget, estimate, who, attr)
+            if not ok:
+                if reserved_team:
+                    self._ledger.release(attr.team, reserved_team)
+                if reserved_project:
+                    self._ledger.release(project_scope(attr.team, attr.project), reserved_project)
+                return PolicyDecision(
+                    allowed=False,
+                    violation="budget_exceeded",
+                    message=warning,
+                    budget=status,
+                    project_budget=project_status,
+                    model_budget=model_status,
+                )
+            if warning:
+                warnings.append(warning)
+            reserved_model = estimate
+
         return PolicyDecision(
             allowed=True,
             warnings=warnings,
@@ -439,6 +529,9 @@ class PolicyEngine:
             reserved_usd=reserved_team,
             project_budget=project_status,
             project_reserved_usd=reserved_project,
+            model_budget=model_status,
+            model_scope=scope_model,
+            model_reserved_usd=reserved_model,
         )
 
     def _reserve(

@@ -142,6 +142,7 @@ class PolicyEnvelope(BaseModel):
     version: str
     budget: BudgetEnvelope | None = None
     project_budget: BudgetEnvelope | None = None
+    model_budget: BudgetEnvelope | None = None  # the model budget that applied (ADR-0025)
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -167,6 +168,7 @@ class ProjectBudgetRow(BaseModel):
     allowed_models: list[str]
     use_cases: list[str] | None = None
     budget: BudgetEnvelope | None
+    model_budgets: dict[str, BudgetEnvelope] | None = None  # the project's own entries
 
 
 class TeamBudgetRow(BaseModel):
@@ -175,6 +177,7 @@ class TeamBudgetRow(BaseModel):
     requests_per_minute: int | None = None
     budget: BudgetEnvelope | None
     projects: list[ProjectBudgetRow] | None = None  # None: the team keeps free-text projects
+    model_budgets: dict[str, BudgetEnvelope] | None = None  # per-model budgets (ADR-0025)
 
 
 class BudgetReport(BaseModel):

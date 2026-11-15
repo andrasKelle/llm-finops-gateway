@@ -51,8 +51,8 @@ deploy/azure/      main.bicep + openai-role.bicep + keys.sh + db_roles.py + READ
                    litellm.bicep + litellm-deploy.sh + push-config.sh + litellm.config.yaml: the LiteLLM direction next to it
 docs/database.md   ledger engines, schema, PostgreSQL roles (lfgadmin/lfg_app/lfg_reporting), operations
 docs/              architecture.md, deployment.md, azure-setup.md, testing-plan.md, comparison.md,
-                   litellm.md, adr/0001..0024
-tests/             one test module per source module, 236 tests (+3 PostgreSQL tests when LFG_TEST_DATABASE_URL is set;
+                   litellm.md, adr/0001..0025
+tests/             one test module per source module, 243 tests (+3 PostgreSQL tests when LFG_TEST_DATABASE_URL is set;
                    the 15 LiteLLM plugin tests skip without the [litellm] extra), FakeProvider in conftest.py
 ```
 
@@ -68,6 +68,10 @@ tests/             one test module per source module, 236 tests (+3 PostgreSQL t
   `use_case_not_registered`, before any provider call; a project budget is reserved and
   settled next to the team's under the counter scope `team/project`; teams without the map
   keep free-text projects.
+- Model budgets (ADR-0025): `model_budgets` on a team or a project, one entry applies per call
+  (the project's replaces the team's), reserved third under `team/model/<model>` or
+  `team/<project>/model/<model>`, reported as `x_finops.policy.model_budget`,
+  `X-FinOps-Model-Budget-*` and `model_budgets` in `/v1/finops/budgets`.
 - Budget: `monthly_usd`, `warn_at` (0.8), `block_at` (1.0), `enforcement: block|warn`,
   `reserve_output_tokens`. Estimated cost is reserved atomically in `budget_counters` before the
   upstream call, settled with the ledger row in one transaction, released on failure
@@ -127,7 +131,7 @@ Bias toward caution over speed; for trivial tasks use judgment.
 - `make check` must be green before any commit: ruff (lint + format), mypy `--strict` on
   `src` and `tests`, pytest. Pre-commit is installed by `make install`.
 - Every module has a test module; new behaviour comes with a test in the same change.
-- Every design decision gets an ADR in `docs/adr/` (next number: 0025). ADR-0009 (evaluation
+- Every design decision gets an ADR in `docs/adr/` (next number: 0026). ADR-0009 (evaluation
   replay) is Proposed, not implemented.
 - Decimal for money everywhere; never float.
 - Secrets only via env / `SecretStr`. Never commit a raw `lfg_` key, `.env`, `*.db`, `demo/out/`.

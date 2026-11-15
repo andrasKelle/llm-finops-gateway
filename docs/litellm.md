@@ -33,7 +33,7 @@ that installs the package into the official LiteLLM image, and `demo.sh`.
 | --- | --- | --- |
 | Attribution | `async_pre_call_hook` | Team = the `team_alias` of the LiteLLM team the key belongs to; project from `X-Project`, use case from `X-Use-Case`, falling back to the key's metadata (`{"finops": {"project": ..., "use_case": ...}}` on `/key/generate`). A key without a team, or a call without a project from either source: `400 missing_attribution`, before the call |
 | Price | same hook | Model not in the price book: `422`, before the call. LiteLLM's own cost map is not consulted |
-| Policy | same hook | Project registry (`403 project_not_registered`, `403 use_case_not_registered`), allow-list, rate limit (`429` with `Retry-After`) and the atomic team and project budget reservations (`403 budget_exceeded`, or a warning at the warn threshold), exactly as in the gateway |
+| Policy | same hook | Project registry (`403 project_not_registered`, `403 use_case_not_registered`), allow-list, rate limit (`429` with `Retry-After`) and the atomic team, project and model budget reservations (`403 budget_exceeded`, or a warning at the warn threshold), exactly as in the gateway |
 | Settle | `async_post_call_response_headers_hook` (non-streaming) or `async_log_success_event` (streaming) | Usage from the response, cost from the price book, one ledger row and the reservation settled in one transaction |
 | Release | `async_log_failure_event` | The reservation is given back when the upstream call fails |
 

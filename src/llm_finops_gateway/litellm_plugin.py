@@ -295,7 +295,10 @@ class FinOpsPlugin(CustomLogger):
         max_tokens = data.get("max_completion_tokens") or data.get("max_tokens")
         tool_chars = len(json.dumps(data["tools"])) if data.get("tools") else 0
         extra_chars = tool_chars + _system_chars(data.get("system"))
-        estimate = estimate_cost(book, model, messages, max_tokens, reserve_output, extra_chars)
+        cap = engine.reserve_output_cap(attr.team, attr.project, model)
+        estimate = estimate_cost(
+            book, model, messages, max_tokens, reserve_output, extra_chars, cap
+        )
         decision = engine.check(attr, model, estimate)
         if not decision.allowed:
             self._count(attr.team, model, decision.violation or "blocked")

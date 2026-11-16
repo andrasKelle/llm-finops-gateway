@@ -57,6 +57,11 @@ class BudgetPolicy(BaseModel):
         ge=1,
         description="Output tokens assumed for the pre-call estimate when max_tokens is absent",
     )
+    reserve_output_tokens_max: int | None = Field(
+        default=None,
+        ge=1,
+        description="The most output tokens a reservation assumes, whatever max_tokens asks for",
+    )
 
     @model_validator(mode="after")
     def _warn_before_block(self) -> BudgetPolicy:
@@ -285,12 +290,16 @@ def estimate_tokens(
     max_tokens: int | None,
     reserve_output_tokens: int,
     extra_chars: int = 0,
+    output_cap: int | None = None,
 ) -> tuple[int, int]:
     """(input, output) token estimate without a tokenizer: prompt chars / 4 plus a per-message
     overhead and ``extra_chars`` (tool definitions); output bounded by max_tokens or the
-    policy's default."""
+    policy's default, and by ``output_cap`` when the policy sets one (ADR-0028)."""
     prompt_chars = sum(_message_chars(m) for m in messages) + extra_chars
-    return prompt_chars // 4 + 8 * len(messages), max_tokens or reserve_output_tokens
+    output_tokens = max_tokens or reserve_output_tokens
+    if output_cap is not None:
+        output_tokens = min(output_tokens, output_cap)
+    return prompt_chars // 4 + 8 * len(messages), output_tokens
 
 
 def estimate_cost(
@@ -300,10 +309,11 @@ def estimate_cost(
     max_tokens: int | None,
     reserve_output_tokens: int,
     extra_chars: int = 0,
+    output_cap: int | None = None,
 ) -> Decimal:
     """Upper-ish bound of a call's cost for budget reservation."""
     input_tokens, output_tokens = estimate_tokens(
-        messages, max_tokens, reserve_output_tokens, extra_chars
+        messages, max_tokens, reserve_output_tokens, extra_chars, output_cap
     )
     return book.cost(model, input_tokens, output_tokens)
 
@@ -368,6 +378,17 @@ class PolicyEngine:
         level, budget = found
         c = self._ledger.counter(model_scope(team, project if level else None, model))
         return _status(budget, c.spent_usd, c.reserved_usd)
+
+    def reserve_output_cap(self, team: str, project: str, model: str) -> int | None:
+        """The most output tokens the reservation of a call may assume (ADR-0028): the
+        smallest ``reserve_output_tokens_max`` among the budgets that apply to the call (the
+        team's, the project's, the model's), or ``None`` when none of them sets one."""
+        policy = self._policies.resolve(team)
+        proj = policy.project(project) or ProjectPolicy()
+        model_budget = policy.model_budget(proj, model)
+        budgets = (policy.budget, proj.budget, model_budget[1] if model_budget else None)
+        caps = [b.reserve_output_tokens_max for b in budgets if b and b.reserve_output_tokens_max]
+        return min(caps) if caps else None
 
     def model_budget_states(
         self, team: str, project: str | None = None

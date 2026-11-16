@@ -57,9 +57,9 @@ deploy/azure/      main.bicep + openai-role.bicep + keys.sh + db_roles.py + READ
                    litellm.bicep + litellm-deploy.sh + push-config.sh + litellm.config.yaml: the LiteLLM direction next to it
 docs/database.md   ledger engines, schema, PostgreSQL roles (lfgadmin/lfg_app/lfg_reporting), operations
 docs/              architecture.md, deployment.md, azure-setup.md, testing-plan.md, comparison.md,
-                   litellm.md, adr/0001..0027
-tests/             one test module per source module, 262 tests (+4 PostgreSQL tests when LFG_TEST_DATABASE_URL is set;
-                   the 20 LiteLLM plugin tests skip without the [litellm] extra), FakeProvider in conftest.py
+                   litellm.md, adr/0001..0028
+tests/             one test module per source module, 267 tests (+4 PostgreSQL tests when LFG_TEST_DATABASE_URL is set;
+                   the 21 LiteLLM plugin tests skip without the [litellm] extra), FakeProvider in conftest.py
 ```
 
 ## Behaviour that must not regress
@@ -79,7 +79,9 @@ tests/             one test module per source module, 262 tests (+4 PostgreSQL t
   `team/<project>/model/<model>`, reported as `x_finops.policy.model_budget`,
   `X-FinOps-Model-Budget-*` and `model_budgets` in `/v1/finops/budgets`.
 - Budget: `monthly_usd`, `warn_at` (0.8), `block_at` (1.0), `enforcement: block|warn`,
-  `reserve_output_tokens`. Estimated cost is reserved atomically in `budget_counters` before the
+  `reserve_output_tokens`, optional `reserve_output_tokens_max` (ADR-0028: one estimate per
+  call, the smallest cap among the team's, project's and model's budget bounds its output;
+  the request's `max_tokens` is not changed). Estimated cost is reserved atomically in `budget_counters` before the
   upstream call, settled with the ledger row in one transaction, released on failure
   (ADR-0007). Warn -> 200 with `X-FinOps-Warning` and `x_finops.policy.budget.level: warn`;
   block -> 403 `budget_exceeded`. Rate limit runs before the budget check -> 429 with
@@ -145,7 +147,7 @@ Bias toward caution over speed; for trivial tasks use judgment.
 - `make check` must be green before any commit: ruff (lint + format), mypy `--strict` on
   `src` and `tests`, pytest. Pre-commit is installed by `make install`.
 - Every module has a test module; new behaviour comes with a test in the same change.
-- Every design decision gets an ADR in `docs/adr/` (next number: 0028). ADR-0009 (evaluation
+- Every design decision gets an ADR in `docs/adr/` (next number: 0029). ADR-0009 (evaluation
   replay) is Proposed, not implemented.
 - Decimal for money everywhere; never float.
 - A schema change is a new revision in `migrations/versions` plus the same change in the models

@@ -7,6 +7,9 @@
 #   budget.block_at      fraction at which calls are rejected with HTTP 403 (default 1.0)
 #   budget.enforcement   "block" (default) or "warn" (never block, only warn and log)
 #   budget.reserve_output_tokens   output tokens assumed when the request has no max_tokens (1024)
+#   budget.reserve_output_tokens_max   optional: the most output tokens a reservation assumes,
+#                    whatever max_tokens asks for (ADR-0028); for clients that send a very large
+#                    max_tokens, such as coding agents. The smallest cap of the call's budgets applies
 #   rate_limit.requests_per_minute  per team, sliding 60 s window, HTTP 429 with Retry-After
 #   projects         optional registry (ADR-0021): when present, X-Project must be one of the keys;
 #                    each project may set its own budget (same keys as above), allowed_models

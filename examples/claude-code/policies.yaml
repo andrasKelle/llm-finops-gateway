@@ -17,6 +17,9 @@ teams:
       monthly_usd: 300
       warn_at: 0.8
       block_at: 1.0
+      # Claude Code asks for max_tokens 128,000 on every call. Without a cap one call in flight
+      # reserves that much output (5 USD on Fable); with it, 16,000 tokens (ADR-0028).
+      reserve_output_tokens_max: 16000
     # A cap per model next to the team's budget (ADR-0025): the expensive models get their own.
     model_budgets:
       claude-opus-5-5: { monthly_usd: 150 }

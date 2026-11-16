@@ -376,7 +376,13 @@ def create_app(
         reserve_output = policy.budget.reserve_output_tokens if policy.budget else 1
         tool_chars = len(json.dumps(req.tools)) if req.tools else 0
         estimate = estimate_cost(
-            book, req.model, messages, req.output_limit, reserve_output, tool_chars
+            book,
+            req.model,
+            messages,
+            req.output_limit,
+            reserve_output,
+            tool_chars,
+            engine.reserve_output_cap(attr.team, attr.project, req.model),
         )
         decision = engine.check(attr, req.model, estimate)
         if not decision.allowed:

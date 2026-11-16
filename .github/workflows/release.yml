@@ -3,6 +3,17 @@ name: release
 on:
   push:
     tags: ["v*.*.*"]
+  # Rebuild and push the image of an existing tag (for example after a change to this
+  # workflow). Builds the tag's sources; the GitHub Release is left as it is.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build the image from, e.g. v0.4.0"
+        required: true
+      latest:
+        description: "Also move the latest tag to this image"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -13,6 +24,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
@@ -22,6 +35,8 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # arm64 is built under emulation, so the image runs on Apple Silicon and Graviton as well
+      - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
       # GHCR requires a lowercase repository name; github.repository keeps the owner's casing.
       - id: image
@@ -30,10 +45,12 @@ jobs:
         with:
           context: .
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: |
-            ${{ steps.image.outputs.name }}:${{ github.ref_name }}
-            ${{ steps.image.outputs.name }}:latest
+            ${{ steps.image.outputs.name }}:${{ inputs.tag || github.ref_name }}
+            ${{ (github.event_name == 'push' || inputs.latest) && format('{0}:latest', steps.image.outputs.name) || '' }}
       - uses: softprops/action-gh-release@v3
+        if: github.event_name == 'push'
         with:
           files: dist/*
           generate_release_notes: true

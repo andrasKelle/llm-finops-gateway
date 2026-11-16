@@ -31,18 +31,20 @@ Four rules are built in and intentional (see the [ADRs](docs/adr/)):
 
 It runs in two shapes. Standalone, the gateway is the front door your applications call:
 
-![Request path](docs/images/architecture.svg)
+![Request path](https://raw.githubusercontent.com/andrasKelle/llm-finops-gateway/main/docs/images/architecture.svg)
 
 Already on LiteLLM? The same rules run inside the LiteLLM proxy as a callback plugin, with
-the same price book, policy file, ledger and reports; no second proxy (ADR-0019):
+the same price book, policy file, ledger and reports; no second proxy (ADR-0019). Claude Code
+and other Anthropic Messages clients go through it too, priced with their cache reads and
+cache writes (ADR-0027):
 
-![The FinOps plugin inside LiteLLM](docs/images/architecture-litellm.svg)
+![The FinOps plugin inside LiteLLM](https://raw.githubusercontent.com/andrasKelle/llm-finops-gateway/main/docs/images/architecture-litellm.svg)
 
 ## What it looks like
 
 A 300-call simulation across five teams (`python demo/run_demo.py`, no API keys needed):
 
-![Demo chargeback chart](docs/images/demo-chargeback.png)
+![Demo chargeback chart](https://raw.githubusercontent.com/andrasKelle/llm-finops-gateway/main/docs/images/demo-chargeback.png)
 
 | team | ok | warned | blocked (budget) | blocked (model) | rate limited | unpriced model | no owner | spend USD | budget used |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -74,7 +76,7 @@ own `/metrics/` endpoint, so the Grafana dashboard works unchanged. The report p
 inside the LiteLLM dashboard as a plugin (ADR-0024). Guide: [docs/litellm.md](docs/litellm.md),
 example stack: [examples/litellm/](examples/litellm/).
 
-![The report page inside the LiteLLM dashboard](docs/images/litellm-dashboard-finops.png)
+![The report page inside the LiteLLM dashboard](https://raw.githubusercontent.com/andrasKelle/llm-finops-gateway/main/docs/images/litellm-dashboard-finops.png)
 
 ### Claude Code and other coding agents
 
@@ -103,7 +105,7 @@ sent through the same gateway, so the demo traffic is attributed and priced too.
 `streamlit run examples/assistant/app.py`, or the `assistant` service of the LiteLLM compose
 stack on port 8501.
 
-![The assistant example](docs/images/assistant.png)
+![The assistant example](https://raw.githubusercontent.com/andrasKelle/llm-finops-gateway/main/docs/images/assistant.png)
 
 ## Why not LiteLLM, Portkey or an API-management gateway?
 
@@ -441,7 +443,7 @@ parse keeps the previous version running and logs the error (ADR-0022).
 | GET    | `/healthz`               | Liveness, version, auth mode, price book and policy versions |
 | GET    | `/docs`                  | OpenAPI UI                                                 |
 
-![The /finops report page](docs/images/finops-report.png)
+![The /finops report page](https://raw.githubusercontent.com/andrasKelle/llm-finops-gateway/main/docs/images/finops-report.png)
 
 Reports follow one access rule (ADR-0016): with `LFG_AUTH_MODE=api_key` a team key reads its
 own team, a key with `role: finops` (`keys new --role finops`) reads every team, and the HTML
@@ -550,7 +552,7 @@ docker compose -f docker-compose.observability.yml up -d   # Prometheus + Grafan
 open http://localhost:3000                                 # viewer without login; admin / admin to edit
 ```
 
-![The Grafana dashboard](docs/images/grafana-dashboard.png)
+![The Grafana dashboard](https://raw.githubusercontent.com/andrasKelle/llm-finops-gateway/main/docs/images/grafana-dashboard.png)
 
 Where each view lives in Azure: the report page is served by the gateway itself, so it is the
 Container App's URL plus `/finops`, behind the gateway's key auth and whatever sits in front

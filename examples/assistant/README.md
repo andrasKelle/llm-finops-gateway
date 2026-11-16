@@ -15,7 +15,7 @@ a default project in its metadata has it preselected. Nothing is configured on t
 ![The assistant](../../docs/images/assistant.png)
 
 ```bash
-pip install "llm-finops-gateway[assistant]"
+pip install ".[assistant]"          # from the repository root
 LFG_ASSISTANT_TARGET_URL=http://localhost:4001 \
 LFG_ASSISTANT_REPORT_URL=http://localhost:8081 \
 streamlit run examples/assistant/app.py

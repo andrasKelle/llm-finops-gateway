@@ -6,7 +6,7 @@ the answer. The answers come from the repository's documentation, sent as the sy
 through the same gateway, so the demo traffic is attributed and priced like any other call,
 and the second question on shows the provider's prompt cache at work.
 
-    pip install "llm-finops-gateway[assistant]"
+    pip install ".[assistant]"          # from the repository root
     LFG_ASSISTANT_TARGET_URL=http://localhost:4001 \\
     LFG_ASSISTANT_REPORT_URL=http://localhost:8081 \\
     streamlit run examples/assistant/app.py

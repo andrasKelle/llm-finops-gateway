@@ -8,6 +8,16 @@ is called out here.
 ## [Unreleased]
 
 ### Added
+- Nothing yet.
+
+## [0.4.0] - 2026-11-16
+
+The coding-agent release: Claude Code and other Anthropic Messages clients behind the LiteLLM
+plugin with cache reads and cache writes priced at their own rates, budgets per model, a cap on
+what a large `max_tokens` reserves, and a ledger schema versioned with migrations. Existing
+databases need `llm-finops-gateway ledger migrate` once before this version starts.
+
+### Added
 - Budgets per model (ADR-0025): `model_budgets` on a team or a registered project, same keys as
   `budget`, reserved after the team's and the project's and settled with the ledger row. The
   state travels as `x_finops.policy.model_budget`, the `X-FinOps-Model-Budget-*` headers and
@@ -255,7 +265,8 @@ First public release.
   results, comparison with existing gateways, ADRs 0001 to 0009, CONTRIBUTING, GOVERNANCE,
   CODE_OF_CONDUCT, SECURITY, CLA, MAINTAINERS.
 
-[Unreleased]: https://github.com/andrasKelle/llm-finops-gateway/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/andrasKelle/llm-finops-gateway/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/andrasKelle/llm-finops-gateway/releases/tag/v0.4.0
 [0.3.1]: https://github.com/andrasKelle/llm-finops-gateway/releases/tag/v0.3.1
 [0.3.0]: https://github.com/andrasKelle/llm-finops-gateway/releases/tag/v0.3.0
 [0.2.0]: https://github.com/andrasKelle/llm-finops-gateway/releases/tag/v0.2.0

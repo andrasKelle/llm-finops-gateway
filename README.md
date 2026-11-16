@@ -66,7 +66,7 @@ book mismatch (regional SKU billed, global price in the book, 0.0123 USD), which
 
 The same rules ship as a LiteLLM proxy plugin:
 `pip install "llm-finops-gateway[litellm] @ git+https://github.com/andrasKelle/llm-finops-gateway"`
-(the package is not on PyPI yet; append `@v0.3.1` to pin a release), register `llm_finops_gateway.litellm_plugin.plugin` under `litellm_settings.callbacks`, point
+(the package is not on PyPI yet; append `@v0.4.0` to pin a release), register `llm_finops_gateway.litellm_plugin.plugin` under `litellm_settings.callbacks`, point
 `LFG_PRICING_PATH`, `LFG_POLICIES_PATH` and `LFG_DATABASE_URL` at your files, and every chat call
 through LiteLLM gets mandatory project attribution, fail-closed pricing, budgets with warn and
 block, the `X-FinOps-*` headers, a ledger row and the gateway's Prometheus metrics on LiteLLM's

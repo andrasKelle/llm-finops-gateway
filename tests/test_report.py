@@ -159,3 +159,26 @@ def test_login_form_sets_cookie_and_scopes_the_page(keyed_client: TestClient) ->
     assert bad.status_code == 200 and "invalid api key" in bad.text
     keyed_client.get("/finops/logout", follow_redirects=False)
     assert '<form method="post"' in keyed_client.get("/finops").text
+
+
+def test_budget_bar_and_percentage_stay_on_one_line() -> None:
+    from llm_finops_gateway.models import BudgetEnvelope, TeamBudgetRow
+    from llm_finops_gateway.report import _STYLE, _budget_cells
+
+    budget = BudgetEnvelope(
+        limit_usd="0.02",
+        spent_usd="0.0105253",
+        reserved_usd="0",
+        used_pct="52.6",
+        remaining_usd="0.0094747",
+        level="warn",
+        enforcement="block",
+        warn_at_pct="50",
+        block_at_pct="100",
+    )
+    row = TeamBudgetRow(
+        team="t", allowed_models=["gpt-4.1-mini", "claude-haiku-5-5"], budget=budget
+    )
+    # a long model list next to it used to push the "%" onto a second line
+    assert '<td class="used" data-v="52.6">' in _budget_cells(row)
+    assert "td.used { white-space: nowrap; }" in _STYLE

@@ -372,6 +372,32 @@ def test_estimate_counts_content_parts_tool_calls_and_tool_definitions() -> None
     assert with_tools == plain + 100 and out == 10
 
 
+def test_estimate_counts_anthropic_tool_use_and_tool_result_blocks() -> None:
+    from llm_finops_gateway.policy import estimate_tokens
+
+    messages: list[dict[str, Any]] = [
+        {"role": "user", "content": [{"type": "text", "text": "x" * 40}]},
+        {
+            "role": "assistant",
+            "content": [{"type": "tool_use", "id": "t", "name": "Bash", "input": {"c": "y" * 34}}],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"type": "tool_result", "tool_use_id": "t", "content": "z" * 80},
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "u",
+                    "content": [{"type": "text", "text": "w" * 40}, {"type": "image"}],
+                },
+            ],
+        },
+    ]
+    tokens, _ = estimate_tokens(messages, None, 10)
+    # 40 text + 41 tool input as JSON ({"c": "yyy..."}) + 80 + 40 tool results = 201 chars
+    assert tokens == 201 // 4 + 8 * 3
+
+
 # ---- project registry and project budgets (ADR-0021) ------------------------------------
 
 REGISTRY_YAML = """\

@@ -1,0 +1,28 @@
+# Policies for the Claude Code example. The team name must match the team_alias of the LiteLLM
+# team that issues the developers' keys.
+version: "2026-11-16"
+
+defaults:
+  allowed_models: ["claude-sonnet-5-5", "claude-haiku-5-5"]
+  budget:
+    monthly_usd: 50
+    warn_at: 0.8
+    block_at: 1.0
+    enforcement: block
+
+teams:
+  dev:
+    allowed_models: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-2"]
+    budget:
+      monthly_usd: 300
+      warn_at: 0.8
+      block_at: 1.0
+    # A cap per model next to the team's budget (ADR-0025): the expensive models get their own.
+    model_budgets:
+      claude-opus-5-5: { monthly_usd: 150 }
+      claude-fable-5-2: { monthly_usd: 30 }
+    # Registry (ADR-0021): X-Project must be one of these, usually the repository name.
+    projects:
+      my-repo: {}
+      payments-api:
+        budget: { monthly_usd: 100 }

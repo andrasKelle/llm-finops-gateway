@@ -116,3 +116,82 @@ def test_reasoning_flag_defaults_to_false(tmp_path: Path) -> None:
     )
     book = PriceBook.from_yaml(path)
     assert book.is_reasoning("r") and not book.is_reasoning("c")
+
+
+# ---- cache writes (ADR-0027) ---------------------------------------------------------------
+
+CLAUDE_BOOK = """\
+version: v
+currency: USD
+models:
+  claude: {input: 2, output: 10, cached_input: 0.1, cache_write: 2.5, cache_write_1h: 4}
+  plain: {input: 2, output: 10}
+"""
+
+
+@pytest.fixture
+def claude_book(tmp_path: Path) -> PriceBook:
+    path = tmp_path / "claude.yaml"
+    path.write_text(CLAUDE_BOOK)
+    return PriceBook.from_yaml(path)
+
+
+def test_cache_writes_are_billed_at_their_own_prices(claude_book: PriceBook) -> None:
+    # 23,120 prompt tokens: 120 fresh, 20,000 read from the cache, 3,000 written to it, of
+    # which 1,000 with the one-hour lifetime; 50 output tokens.
+    # 120*2 + 20000*0.1 + 2000*2.5 + 1000*4 + 50*10 = 240 + 2000 + 5000 + 4000 + 500 per 1M
+    cost = claude_book.cost(
+        "claude",
+        23_120,
+        50,
+        cached_input_tokens=20_000,
+        cache_write_input_tokens=3_000,
+        cache_write_1h_input_tokens=1_000,
+    )
+    assert cost == Decimal("0.01174")
+
+
+def test_cache_writes_without_their_own_price_cost_the_input_price(claude_book: PriceBook) -> None:
+    with_writes = claude_book.cost(
+        "plain", 100, 0, cache_write_input_tokens=60, cache_write_1h_input_tokens=20
+    )
+    assert with_writes == claude_book.cost("plain", 100, 0)
+
+
+def test_one_hour_writes_fall_back_to_the_cache_write_price(tmp_path: Path) -> None:
+    path = tmp_path / "p.yaml"
+    path.write_text(
+        "version: v\ncurrency: USD\nmodels:\n  m: {input: 2, output: 0, cache_write: 3}\n"
+    )
+    book = PriceBook.from_yaml(path)
+    # 100 tokens, all written to the cache, half of them for one hour: all at 3 per 1M
+    assert book.cost(
+        "m", 100, 0, cache_write_input_tokens=100, cache_write_1h_input_tokens=50
+    ) == Decimal("0.0003")
+
+
+@pytest.mark.parametrize(
+    ("cached", "written", "written_1h"),
+    [(60, 50, 0), (0, 10, 11), (0, -1, 0)],
+)
+def test_cache_token_counts_must_fit_the_prompt(
+    claude_book: PriceBook, cached: int, written: int, written_1h: int
+) -> None:
+    with pytest.raises(ValueError):
+        claude_book.cost(
+            "claude",
+            100,
+            0,
+            cached_input_tokens=cached,
+            cache_write_input_tokens=written,
+            cache_write_1h_input_tokens=written_1h,
+        )
+
+
+def test_repo_price_book_has_the_claude_rows() -> None:
+    book = PriceBook.from_yaml(Path(__file__).parents[1] / "config" / "pricing.yaml")
+    for model in ("claude-fable-5-2", "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"):
+        price = book.price(model)
+        assert price.cached_input_per_million is not None
+        assert price.cache_write_per_million == price.input_per_million * Decimal("1.25")
+        assert price.cache_write_1h_per_million == price.input_per_million * 2

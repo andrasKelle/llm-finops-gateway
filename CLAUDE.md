@@ -23,18 +23,21 @@ src/llm_finops_gateway/
   main.py          create_app(settings, price_book, policies, keyring, ledger, provider, providers);
                    endpoints, build_providers(), route_models() (ADR-0011)
   config.py        Settings (env prefix LFG_): provider, auth_mode, paths, database_url, otel_*
-  pricing.py       PriceBook (config/pricing.yaml, versioned), UnknownModelError, money()
+  pricing.py       PriceBook (config/pricing.yaml, versioned; cached_input, cache_write, cache_write_1h),
+                   UnknownModelError, money()
   pricing_sync.py  `pricing sync`: Azure Retail Prices meters -> price book diff / rewrite (ADR-0013)
   policy.py        PolicySet / PolicyEngine: allow-list -> rate limit -> atomic budget reservation
   ledger.py        SQLAlchemy ledger (cost_records, budget_counters), reserve/settle/release
   migrate.py       Alembic revisions in migrations/versions (rev_NNNN_*.py): head(), current(), upgrade();
-                   empty database -> head at start, existing -> `ledger migrate` only (ADR-0026)
+                   empty database -> head at start, existing -> `ledger migrate` only (ADR-0026);
+                   the ledger refuses a database at another revision (SchemaOutOfDateError, ADR-0027)
   auth.py          KeyRing (SHA-256 hashes from config/keys.yaml), generate_key(), hash_key()
   attribution.py   Attribution(team, project, use_case, key_id); api_key vs headers mode
   enforcement.py   rejection() and the X-FinOps-* header builders shared by main.py and the plugin
   reload.py        WatchedFile: price book and policies reloaded on change (ADR-0022)
   focus.py         FOCUS 1.1 export of the ledger, daily rows (ADR-0023); CLI `ledger export`
-  litellm_plugin.py FinOpsPlugin (LiteLLM CustomLogger): the same rules inside a LiteLLM proxy (ADR-0019)
+  litellm_plugin.py FinOpsPlugin (LiteLLM CustomLogger): the same rules inside a LiteLLM proxy (ADR-0019),
+                   chat completions and the Anthropic /v1/messages route (Claude Code, ADR-0027)
   litellm_ui.py    the report page as a LiteLLM dashboard plugin: claim verification, session cookie, shell (ADR-0024)
   providers/       base.py (Provider protocol), ollama.py, azure_openai.py, openai_compat.py (ADR-0010),
                    azure_identity.py (Entra ID tokens, [azure] extra, ADR-0014)
@@ -46,16 +49,17 @@ src/llm_finops_gateway/
   alerts.py        Alerter: webhook POST per budget/upstream event, cooldown, background delivery (ADR-0017)
 config/            pricing.yaml, policies.yaml, keys.yaml (hashes only, repo copy is `keys: []`)
 demo/              run_demo.py (simulated or live), policies.yaml (tiny budgets), README.md
-examples/          OpenAI SDK examples (python/chat.py, typescript/chat.ts); litellm/ compose stack,
+examples/          OpenAI SDK examples (python/chat.py, typescript/chat.ts); claude-code/ compose stack
+                   and walk-through for Claude Code behind the plugin; litellm/ compose stack,
                    Dockerfile and demo.sh for the plugin; assistant/ Streamlit page (key sign-in, receipt,
                    docs Q&A through the gateway); grafana/ dashboard JSON
 deploy/azure/      main.bicep + openai-role.bicep + keys.sh + db_roles.py + README: Container Apps + PostgreSQL + Key Vault (keys.yaml there is git-ignored);
                    litellm.bicep + litellm-deploy.sh + push-config.sh + litellm.config.yaml: the LiteLLM direction next to it
 docs/database.md   ledger engines, schema, PostgreSQL roles (lfgadmin/lfg_app/lfg_reporting), operations
 docs/              architecture.md, deployment.md, azure-setup.md, testing-plan.md, comparison.md,
-                   litellm.md, adr/0001..0026
-tests/             one test module per source module, 249 tests (+4 PostgreSQL tests when LFG_TEST_DATABASE_URL is set;
-                   the 16 LiteLLM plugin tests skip without the [litellm] extra), FakeProvider in conftest.py
+                   litellm.md, adr/0001..0027
+tests/             one test module per source module, 262 tests (+4 PostgreSQL tests when LFG_TEST_DATABASE_URL is set;
+                   the 20 LiteLLM plugin tests skip without the [litellm] extra), FakeProvider in conftest.py
 ```
 
 ## Behaviour that must not regress
@@ -83,6 +87,14 @@ tests/             one test module per source module, 249 tests (+4 PostgreSQL t
 - Every money string goes through `pricing.money()` (Decimal, no `0.0`, no `0.00`). Amounts are
   in the price book's `currency` (validated 3-letter code), echoed as `x_finops.currency` and
   `X-FinOps-Currency`; the `*_usd` field names are kept until 1.0.
+- Plugin on `/v1/messages` (ADR-0027, measured on LiteLLM 1.108.0): call type
+  `anthropic_messages`, the plugin's marker goes under `litellm_metadata` (`metadata` is the
+  Anthropic request field and is not touched), every call settles from the success event, a
+  rejection's `error` is `code: explanation` with the bare code in `code` (the chat route keeps
+  the bare code), `/v1/messages/count_tokens` never reaches the plugin.
+- Cache writes (Anthropic): `cache_write_input_tokens` is part of `input_tokens`,
+  `cache_write_1h_input_tokens` part of that; billed at `cache_write` / `cache_write_1h`
+  (fallback: `input`, then `cache_write`) and stored on the ledger row.
 - Cached prompt tokens (`usage.prompt_tokens_details.cached_tokens`) are billed at the row's
   `cached_input` price and stored on the ledger row; an upstream 429 is passed through as
   `429 upstream_rate_limited` with `Retry-After`, never as 502.
@@ -133,12 +145,13 @@ Bias toward caution over speed; for trivial tasks use judgment.
 - `make check` must be green before any commit: ruff (lint + format), mypy `--strict` on
   `src` and `tests`, pytest. Pre-commit is installed by `make install`.
 - Every module has a test module; new behaviour comes with a test in the same change.
-- Every design decision gets an ADR in `docs/adr/` (next number: 0027). ADR-0009 (evaluation
+- Every design decision gets an ADR in `docs/adr/` (next number: 0028). ADR-0009 (evaluation
   replay) is Proposed, not implemented.
 - Decimal for money everywhere; never float.
 - A schema change is a new revision in `migrations/versions` plus the same change in the models
   in `ledger.py`, in one PR; `tests/test_migrate.py` fails when they differ. The gateway never
-  alters an existing database; `/healthz` carries `schema` and `schema_head` (ADR-0026).
+  alters an existing database and refuses to start on one at another revision; `/healthz`
+  carries `schema` and `schema_head` (ADR-0026, ADR-0027).
 - Secrets only via env / `SecretStr`. Never commit a raw `lfg_` key, `.env`, `*.db`, `demo/out/`.
 - Commit messages: short, Conventional Commits (`feat:`, `fix:`, `docs:`, `ci:`). No
   `Co-Authored-By` or other AI attribution trailers.
@@ -176,7 +189,9 @@ Passed 2026-10-28 on macOS with `llama3.2:3b`: sections 0 to 3c (unit suite, sim
 Ollama, budget warn/block, team keys, rate limit). Section 4 Azure OpenAI passed 2026-10-30
 (`gpt-4.1-mini-dev` in Sweden Central, both adapters); 4.5 reconciled on 2026-10-31: tokens
 match except 774 off-gateway test tokens, cost matches once the regional SKU is priced. 3d and
-5 passed on 2026-10-30.
+5 passed on 2026-10-30. Section 4b (Claude Code behind the plugin, Anthropic API) passed
+2026-11-16: 50 calls on four Claude models, ledger equal to Anthropic's usage priced by hand, to
+Claude Code's own cost report and to LiteLLM's spend log.
 
 ## CI and release state
 

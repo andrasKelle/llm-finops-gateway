@@ -16,13 +16,24 @@ is called out here.
 - Schema migrations (ADR-0026): the ledger schema is versioned with Alembic revisions shipped in
   the package. An empty database is set up at start as before; an existing one is upgraded with
   the new `llm-finops-gateway ledger migrate`, run with a role that may alter tables. `/healthz`
-  reports `schema` and `schema_head`, and the gateway warns at start-up when they differ.
-  `docs/database.md` has a local PostgreSQL walk-through.
+  reports `schema` and `schema_head`. `docs/database.md` has a local PostgreSQL walk-through.
+- Claude Code behind the LiteLLM plugin (ADR-0027): the plugin handles LiteLLM's Anthropic
+  `/v1/messages` route with the same attribution, pricing and budget rules as chat completions.
+  The project comes from `X-Project` (`ANTHROPIC_CUSTOM_HEADERS` in Claude Code), a rejection
+  carries its explanation in the error message, and every call is settled with its cache reads
+  and cache writes. `examples/claude-code/` has a compose stack and a walk-through.
+- Cache-write pricing: `cache_write` and `cache_write_1h` on a price book row, and
+  `cache_write_input_tokens` and `cache_write_1h_input_tokens` on the ledger row (revision
+  `0003`). The price book has rows for Claude Fable 5.2, Opus 5.5, Sonnet 5.5 and Haiku 5.5 at
+  Anthropic's list prices (version `2026-11-16`).
 
 ### Changed
 - **Upgrade step**: after installing this version run `llm-finops-gateway ledger migrate` once
   against an existing database (SQLite or PostgreSQL). It records a 0.3 database as the baseline
-  and applies revision `0002`; the data stays. `alembic` is a new core dependency.
+  and applies revisions `0002` and `0003`; the data stays. `alembic` is a new core dependency.
+- The gateway does not start, and the plugin serves no call, on a database whose schema revision
+  is not the one the code expects; the error names the revisions and the command. An empty
+  database is still set up automatically.
 
 ## [0.3.1] - 2026-11-12
 

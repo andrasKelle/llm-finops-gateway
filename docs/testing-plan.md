@@ -199,6 +199,22 @@ python demo/run_demo.py --mode live --url http://localhost:8080 --model gpt-4.1-
       next to the gateway summary. This pair is the strongest image for the launch post.
 - [ ] `az group delete` when done.
 
+## 4b. Claude Code behind the LiteLLM plugin, real money (20 min, about 1 USD)
+
+`examples/claude-code/` with an Anthropic API key in `.env`; a LiteLLM team `dev` and a key in
+it; calls with `X-Project: my-repo`.
+
+| # | Action | Expected |
+| --- | --- | --- |
+| 4b.1 | `/v1/messages` on each Claude row of the price book, non-streaming and streaming | HTTP 200; one ledger row per call, provider `anthropic`; tokens and cost equal the usage Anthropic returned, priced by hand |
+| 4b.2 | A prompt with a `cache_control` breakpoint sent twice, per model; once more with `ttl: "1h"` | first call: the prefix in `cache_write_input_tokens` at the `cache_write` price; second call: the same tokens in `cached_input_tokens` at the `cached_input` price; the 1-hour write in `cache_write_1h_input_tokens` at `cache_write_1h` |
+| 4b.3 | A tool call and its tool result on `/v1/messages` | two ledger rows, cost matches |
+| 4b.4 | Claude Code (`claude -p ... --output-format json`) through the proxy: a task that writes, edits and runs a file, on Opus, Sonnet and Haiku; one that starts a subagent | every call attributed to the team and project; the session's ledger total equals the `total_cost_usd` Claude Code reports |
+| 4b.5 | The ledger per model against LiteLLM's own spend log (`LiteLLM_SpendLogs`) | same calls, tokens and cost |
+| 4b.6 | No `X-Project`; a project outside the registry; a model without a price | `400 missing_attribution`, `403 project_not_registered`, `422`, each with its explanation in Claude Code's error line; no ledger row |
+| 4b.7 | A project with a 0.001 budget added to `policies.yaml` while the proxy runs | the next call is refused with `403 budget_exceeded` naming the project and the estimate, no restart |
+| 4b.8 | `/v1/chat/completions` with a Claude model | HTTP 200 with `X-FinOps-Cost-USD`, cost matches by hand |
+
 ## 5. Docker (10 min)
 
 ```bash
@@ -250,6 +266,7 @@ docker compose down
 | 3c Rate limit | pass | 2026-10-28 | `403 403 403 429`, `Retry-After: 60`, log `reason=rate_limited rpm=3` |
 | 3d Tracing | pass | 2026-10-30 | Jaeger 2.5.0 via OTLP/HTTP on 4318; `POST /v1/chat/completions` spans carry `finops.team`, `finops.project`, `finops.use_case`, `finops.model`, `finops.cost_usd`, `finops.input_tokens`, `finops.output_tokens`, `finops.request_id`; `/healthz` not traced |
 | 4 Azure OpenAI | pass (4.1 to 4.4, 4.6) | 2026-10-30 | `gpt-4.1-mini-dev` in Sweden Central; 30-call run then an 800-call run (713 sent, 662 served, 0.0576 USD) with a policy copy that allows the model for every team; ledger total for the day 674 rows, 12,214 input and 33,448 output tokens, 0.0584024 USD; cost by hand matches to the last digit; 502 `DeploymentNotFound` with 0 ledger rows; v1 endpoint via `openai_compat` ok. 4.7 reasoning params on `gpt-5-mini-dev` (Global Standard) pass 2026-10-30: 200 with translated params, 60-token limit gave empty content and `length`, 400-token limit gave "Ready" with 74 completion tokens, cost 0.00015125 USD matches by hand. 4.8 streaming pass 2026-10-30: 13 events, text intact, final usage 16 in / 10 out from Azure (not estimated), cost 0.0000224 USD, ledger row written; gpt-5-mini stream reported 300 reasoning tokens. 4.9 Entra pass 2026-10-30: keyless chat and stream through the gateway with the `az login` identity, both ledgered; the `Cognitive Services OpenAI User` role took about 35 minutes to propagate (first `PermissionDenied` naming the principal, then "Principal does not have access to API/Operation", then 200). 4.10 tool calling pass 2026-10-30: `tool_calls` round trip, 7 streamed fragments assembling `{"city":"Pecs"}`, JSON mode, content parts, 422 `extra_forbidden` for `foo`. 4.5 pass 2026-10-31 (see the reconciliation below) |
+| 4b Claude Code | pass | 2026-11-16 | LiteLLM 1.108.0, Claude Code 2.1.325, Anthropic API; 50 calls, 0.990507 USD on `claude-fable-5-2`, `claude-opus-5-5`, `claude-sonnet-5-5` and `claude-haiku-5-5`. 20 scripted calls (plain, streamed, cache write and read at about 24,300 tokens per model, a 1-hour write, a tool round trip): tokens and cost equal Anthropic's usage priced by hand, 0 mismatches. Seven Claude Code sessions, one with a subagent: the ledger equals Claude Code's own `total_cost_usd` (0.232871 USD over six of them, difference 0). The ledger equals LiteLLM's spend log per model: 50 calls, 0.990507 USD on both sides. Rejections and the live budget block as expected. Claude Code asks for `max_tokens` 128,000, so the reservation of one call in flight was 0.07 USD on Haiku, 1.30 on Sonnet, 2.61 on Opus and 5.22 on Fable; `CLAUDE_CODE_MAX_OUTPUT_TOKENS=8000` brought Opus down to 0.21 |
 | 5 Docker | pass (image) | 2026-10-30 | image builds, runs as uid 10001, healthcheck `healthy`, live call through the container ok. `docker compose config` fails on Compose 2.23 (`env_file` long syntax needs 2.24+); compose with Ollama not brought up |
 | 6 Limitations | confirmed by tests | 2026-10-28 | estimate-based rejection and per-instance rate limits covered by unit tests |
 

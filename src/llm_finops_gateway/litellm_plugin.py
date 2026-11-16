@@ -6,15 +6,18 @@ policy file and ledger database the gateway uses::
     litellm_settings:
       callbacks: llm_finops_gateway.litellm_plugin.plugin
 
-Per chat call the plugin runs the same five steps as the gateway: attribution (team from the
+Per chat call, on `/v1/chat/completions` and on the Anthropic `/v1/messages` route that
+Claude Code uses (ADR-0027), the plugin runs the same five steps as the gateway: attribution
+(team from the
 LiteLLM key's team alias, project and use case from ``X-Project`` and ``X-Use-Case``), price
 book lookup (unknown model: 422 before the call), policy with an atomic budget reservation
 (403 or 429 before the call), then settlement of the real usage into the shared ledger and
 the ``X-FinOps-*`` response headers. The response body is left untouched.
 
 Settlement happens once per request, in whichever hook sees the usage first: the response
-headers hook for non-streaming calls (so the cost header can be set), the success log event
-for streamed calls. The failure event releases the reservation.
+headers hook for non-streaming chat completions (so the cost header can be set), the success
+log event for streamed calls and for every `/v1/messages` call, whose response body carries
+neither the provider nor LiteLLM's usage. The failure event releases the reservation.
 """
 
 from __future__ import annotations
@@ -46,6 +49,9 @@ log = logging.getLogger(__name__)
 
 META = "finops"  # our one key inside LiteLLM's request metadata
 CHAT_CALL_TYPES = frozenset({"completion", "acompletion"})
+# `/v1/messages` (Claude Code and other Anthropic Messages clients, ADR-0027). On this route
+# `metadata` is the Anthropic request field, so LiteLLM keeps its own under `litellm_metadata`.
+MESSAGES_CALL_TYPES = frozenset({"anthropic_messages", "aanthropic_messages"})
 PENDING_MAX_AGE_S = 3600.0
 
 
@@ -79,6 +85,10 @@ def _usage_of(obj: Any) -> TokenUsage | None:
         return None
     details = get(usage, "prompt_tokens_details")
     cached = get(details, "cached_tokens") if details is not None else None
+    # Anthropic cache writes, as LiteLLM reports them: the total and its split by lifetime.
+    written = get(details, "cache_creation_tokens") if details is not None else None
+    split = get(details, "cache_creation_token_details") if details is not None else None
+    written_1h = get(split, "ephemeral_1h_input_tokens") if split is not None else None
     cdetails = get(usage, "completion_tokens_details")
     reasoning = get(cdetails, "reasoning_tokens") if cdetails is not None else None
     return TokenUsage(
@@ -86,6 +96,8 @@ def _usage_of(obj: Any) -> TokenUsage | None:
         output_tokens=int(completion),
         cached_input_tokens=int(cached or 0),
         reasoning_tokens=int(reasoning or 0),
+        cache_write_input_tokens=int(written or 0),
+        cache_write_1h_input_tokens=int(written_1h or 0),
     )
 
 
@@ -96,6 +108,25 @@ def _key_defaults(user_api_key_dict: Any) -> dict[str, str]:
     if not isinstance(block, dict):
         return {}
     return {k: str(v) for k, v in block.items() if k in ("project", "use_case") and v}
+
+
+def _system_chars(system: Any) -> int:
+    """Characters of an Anthropic `system` prompt: a string or a list of text blocks."""
+    if isinstance(system, str):
+        return len(system)
+    if isinstance(system, list):
+        return sum(len(str(b.get("text", ""))) for b in system if isinstance(b, dict))
+    return 0
+
+
+def _spoken(detail: dict[str, Any]) -> dict[str, Any]:
+    """The rejection body for `/v1/messages`. LiteLLM passes only ``detail["error"]`` on as the
+    error message, and Claude Code shows the developer nothing but that message, so the
+    explanation goes next to the code there; the bare code stays available as ``code``."""
+    text = detail.get("message") or detail.get("hint")
+    if not text:
+        return detail
+    return {**detail, "code": detail["error"], "error": f"{detail['error']}: {text}"}
 
 
 def _seconds(start: Any, end: Any) -> float | None:
@@ -206,22 +237,25 @@ class FinOpsPlugin(CustomLogger):
     async def async_pre_call_hook(
         self, user_api_key_dict: Any, cache: Any, data: dict[str, Any], call_type: str
     ) -> dict[str, Any] | None:
-        if call_type not in CHAT_CALL_TYPES:
+        if call_type not in CHAT_CALL_TYPES and call_type not in MESSAGES_CALL_TYPES:
             return data
         book, engine, ledger = self._ensure()
         self._sweep(ledger)
+        shape = _spoken if call_type in MESSAGES_CALL_TYPES else dict
 
         headers = (data.get("proxy_server_request") or {}).get("headers") or {}
         team = getattr(user_api_key_dict, "team_alias", None)
         if not team:
             raise HTTPException(
                 status_code=400,
-                detail={
-                    "error": "missing_attribution",
-                    "missing": ["team"],
-                    "hint": "The LiteLLM key belongs to no team; create keys with a team_id "
-                    "whose team_alias matches a team in policies.yaml.",
-                },
+                detail=shape(
+                    {
+                        "error": "missing_attribution",
+                        "missing": ["team"],
+                        "hint": "The LiteLLM key belongs to no team; create keys with a team_id "
+                        "whose team_alias matches a team in policies.yaml.",
+                    }
+                ),
             )
         # A key may carry a default project and use case in its LiteLLM metadata
         # (`metadata: {finops: {project: ..., use_case: ...}}` on /key/generate); the headers
@@ -232,13 +266,15 @@ class FinOpsPlugin(CustomLogger):
         if not project:
             raise HTTPException(
                 status_code=400,
-                detail={
-                    "error": "missing_attribution",
-                    "missing_headers": ["X-Project"],
-                    "hint": "Set X-Project so the call can be charged back, or give the key a "
-                    'default project in its metadata ({"finops": {"project": ...}}); '
-                    "the team comes from the LiteLLM key.",
-                },
+                detail=shape(
+                    {
+                        "error": "missing_attribution",
+                        "missing_headers": ["X-Project"],
+                        "hint": "Set X-Project so the call can be charged back, or give the key "
+                        'a default project in its metadata ({"finops": {"project": ...}}); '
+                        "the team comes from the LiteLLM key.",
+                    }
+                ),
             )
         base = attribution_from_headers(team, project, use_case)
         attr = Attribution(
@@ -258,14 +294,15 @@ class FinOpsPlugin(CustomLogger):
         reserve_output = policy.budget.reserve_output_tokens if policy.budget else 1
         max_tokens = data.get("max_completion_tokens") or data.get("max_tokens")
         tool_chars = len(json.dumps(data["tools"])) if data.get("tools") else 0
-        estimate = estimate_cost(book, model, messages, max_tokens, reserve_output, tool_chars)
+        extra_chars = tool_chars + _system_chars(data.get("system"))
+        estimate = estimate_cost(book, model, messages, max_tokens, reserve_output, extra_chars)
         decision = engine.check(attr, model, estimate)
         if not decision.allowed:
             self._count(attr.team, model, decision.violation or "blocked")
             if decision.violation == "budget_exceeded" and self._alerter is not None:
                 self._alerter.budget_block(attr.team, decision.budget, decision.message or "")
             status_code, detail, extra = rejection(decision, attr, model, engine.version)
-            raise HTTPException(status_code=status_code, detail=detail, headers=extra)
+            raise HTTPException(status_code=status_code, detail=shape(detail), headers=extra)
         if decision.warnings and decision.budget is not None and self._alerter is not None:
             self._alerter.budget_warn(attr.team, decision.budget, decision.warnings[0])
 
@@ -280,7 +317,8 @@ class FinOpsPlugin(CustomLogger):
             decision.model_scope,
             decision.model_reserved_usd,
         )
-        data.setdefault("metadata", {})[META] = {"request_id": request_id, "team": attr.team}
+        meta_key = "litellm_metadata" if call_type in MESSAGES_CALL_TYPES else "metadata"
+        data.setdefault(meta_key, {})[META] = {"request_id": request_id, "team": attr.team}
         return data
 
     def _count(self, team: str, model: str, outcome: str) -> None:
@@ -311,7 +349,12 @@ class FinOpsPlugin(CustomLogger):
     ) -> tuple[Decimal, BudgetStatus | None]:
         book, engine, ledger = self._ensure()
         cost = book.cost(
-            pending.model, usage.input_tokens, usage.output_tokens, usage.cached_input_tokens
+            pending.model,
+            usage.input_tokens,
+            usage.output_tokens,
+            usage.cached_input_tokens,
+            usage.cache_write_input_tokens,
+            usage.cache_write_1h_input_tokens,
         )
         ledger.record(
             CostEntry(
@@ -324,6 +367,8 @@ class FinOpsPlugin(CustomLogger):
                 input_tokens=usage.input_tokens,
                 output_tokens=usage.output_tokens,
                 cached_input_tokens=usage.cached_input_tokens,
+                cache_write_input_tokens=usage.cache_write_input_tokens,
+                cache_write_1h_input_tokens=usage.cache_write_1h_input_tokens,
                 cost_usd=cost,
                 price_book_version=book.version,
                 key_id=pending.attr.key_id,
@@ -369,9 +414,12 @@ class FinOpsPlugin(CustomLogger):
 
     @staticmethod
     def _meta(container: dict[str, Any] | None) -> dict[str, Any] | None:
-        meta = (container or {}).get("metadata") or {}
-        found = meta.get(META)
-        return found if isinstance(found, dict) else None
+        for key in ("metadata", "litellm_metadata"):
+            meta = (container or {}).get(key)
+            found = meta.get(META) if isinstance(meta, dict) else None
+            if isinstance(found, dict):
+                return found
+        return None
 
     async def async_post_call_response_headers_hook(
         self,

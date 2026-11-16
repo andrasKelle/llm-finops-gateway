@@ -28,6 +28,8 @@ class TokenUsage:
     output_tokens: int
     cached_input_tokens: int = 0
     reasoning_tokens: int = 0
+    cache_write_input_tokens: int = 0  # subset of input_tokens written to the prompt cache
+    cache_write_1h_input_tokens: int = 0  # subset of those with the one-hour lifetime
 
 
 @dataclass(frozen=True)

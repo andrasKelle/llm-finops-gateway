@@ -1,7 +1,7 @@
 """The LiteLLM plugin, exercised through its hooks without a LiteLLM server."""
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -430,3 +430,191 @@ async def test_model_budget_in_litellm_mode(tmp_path: Path, ledger: Ledger) -> N
     assert exc.value.status_code == 403
     assert detail_of(exc.value)["model_budget"]["level"] == "block"
     assert ledger.counter("product").reserved_usd == 0
+
+
+# ---- Claude Code and other Anthropic Messages clients on /v1/messages (ADR-0027) -----------
+
+CLAUDE_PRICING = """\
+version: "claude"
+currency: USD
+models:
+  claude-sonnet-5-5:
+    { input: 2, output: 10, cached_input: 0.1, cache_write: 2.5, cache_write_1h: 4 }
+"""
+CLAUDE_POLICIES = """\
+version: "claude"
+defaults:
+  allowed_models: ["*"]
+teams:
+  dev:
+    budget: { monthly_usd: 5 }
+    model_budgets:
+      claude-sonnet-5-5: { monthly_usd: 1 }
+"""
+
+
+@pytest.fixture
+def claude_plugin(tmp_path: Path, ledger: Ledger) -> FinOpsPlugin:
+    (tmp_path / "pricing.yaml").write_text(CLAUDE_PRICING)
+    (tmp_path / "policies.yaml").write_text(CLAUDE_POLICIES)
+    return FinOpsPlugin(
+        price_book=PriceBook.from_yaml(tmp_path / "pricing.yaml"),
+        policies=PolicySet.from_yaml(tmp_path / "policies.yaml"),
+        ledger=ledger,
+    )
+
+
+def messages_request(project: str | None = "my-repo", **extra: Any) -> dict[str, Any]:
+    """The pre-call data of a `/v1/messages` request as LiteLLM 1.108 hands it over: the proxy's
+    own metadata is under `litellm_metadata`, `metadata` is the Anthropic request field."""
+    headers = {"content-type": "application/json", "anthropic-version": "2023-06-01"}
+    if project:
+        headers["x-project"] = project
+    data: dict[str, Any] = {
+        "model": "claude-sonnet-5-5",
+        "max_tokens": 100,
+        "system": [{"type": "text", "text": "You are Claude Code. " + "s" * 4000}],
+        "tools": [{"name": "Bash", "description": "run", "input_schema": {"type": "object"}}],
+        "metadata": {"user_id": "user_abc"},
+        "messages": [
+            {"role": "user", "content": [{"type": "text", "text": "hi"}]},
+            {
+                "role": "assistant",
+                "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {"c": "ls"}}],
+            },
+            {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "a.txt"}],
+            },
+        ],
+        "litellm_metadata": {"endpoint": "/v1/messages"},
+        "proxy_server_request": {"headers": headers},
+    }
+    data.update(extra)
+    return data
+
+
+def messages_success(data: dict[str, Any]) -> tuple[dict[str, Any], SimpleNamespace]:
+    """The success event of that request: LiteLLM's usage, cache reads and writes included."""
+    kwargs = {
+        "litellm_params": {
+            "metadata": data["litellm_metadata"],
+            "litellm_metadata": data["litellm_metadata"],
+        },
+        "standard_logging_object": {"custom_llm_provider": "anthropic"},
+        "response_cost": 0.01174,
+    }
+    usage = SimpleNamespace(
+        prompt_tokens=23_120,  # 120 fresh + 20,000 read from the cache + 3,000 written to it
+        completion_tokens=50,
+        prompt_tokens_details=SimpleNamespace(
+            cached_tokens=20_000,
+            cache_creation_tokens=3_000,
+            cache_creation_token_details={
+                "ephemeral_5m_input_tokens": 2_000,
+                "ephemeral_1h_input_tokens": 1_000,
+            },
+        ),
+        completion_tokens_details=None,
+    )
+    return kwargs, SimpleNamespace(usage=usage)
+
+
+async def test_messages_call_is_attributed_reserved_and_settled_with_cache_tokens(
+    claude_plugin: FinOpsPlugin, ledger: Ledger
+) -> None:
+    k = key(team="dev", alias="dev-laptop")
+    data = await claude_plugin.async_pre_call_hook(
+        k, None, messages_request(), "anthropic_messages"
+    )
+    assert data is not None
+    assert data["metadata"] == {"user_id": "user_abc"}  # Anthropic's field is left alone
+    assert data["litellm_metadata"]["finops"]["team"] == "dev"
+    # the estimate counts the system prompt, the tools and the content blocks: 100 output
+    # tokens alone are 0.001, the 4,000-character system prompt adds about 1,000 input tokens
+    reserved = ledger.counter("dev").reserved_usd
+    assert reserved > Decimal("0.003")
+    assert ledger.counter("dev/model/claude-sonnet-5-5").reserved_usd == reserved
+
+    # a non-streaming /v1/messages response is a plain dict in the Anthropic shape; the call is
+    # settled from the success event, which carries the provider and the full usage
+    anthropic_body = {"type": "message", "usage": {"input_tokens": 120, "output_tokens": 50}}
+    headers = await claude_plugin.async_post_call_response_headers_hook(data, k, anthropic_body)
+    assert headers is not None and "X-FinOps-Cost-USD" not in headers
+    assert headers["X-FinOps-Budget-Status"] == "ok"
+    assert headers["X-FinOps-Model-Budget-Limit-USD"] == "1"
+    assert ledger.counter("dev").reserved_usd == reserved
+
+    kwargs, response_obj = messages_success(data)
+    await claude_plugin.async_log_success_event(kwargs, response_obj, None, None)
+    counter = ledger.counter("dev")
+    assert counter.reserved_usd == 0 and counter.spent_usd == Decimal("0.01174")
+    assert ledger.counter("dev/model/claude-sonnet-5-5").spent_usd == Decimal("0.01174")
+    now = datetime.now(UTC)
+    (row,) = ledger.rows(now - timedelta(hours=1), now + timedelta(hours=1))
+    assert (row.team, row.project, row.key_id) == ("dev", "my-repo", "dev-laptop")
+    assert (row.provider, row.model) == ("anthropic", "claude-sonnet-5-5")
+    assert (row.input_tokens, row.output_tokens, row.cached_input_tokens) == (23_120, 50, 20_000)
+    assert (row.cache_write_input_tokens, row.cache_write_1h_input_tokens) == (3_000, 1_000)
+
+
+async def test_messages_call_follows_the_same_rejections(claude_plugin: FinOpsPlugin) -> None:
+    k = key(team="dev", alias="dev-laptop")
+    with pytest.raises(HTTPException) as exc:
+        await claude_plugin.async_pre_call_hook(
+            k, None, messages_request(project=None), "anthropic_messages"
+        )
+    assert exc.value.status_code == 400
+    # LiteLLM hands only `error` to the client as the message, and Claude Code shows only
+    # that: on this route the explanation rides along, the bare code is in `code`
+    detail = detail_of(exc.value)
+    assert detail["code"] == "missing_attribution"
+    assert detail["error"].startswith("missing_attribution: Set X-Project")
+
+    with pytest.raises(HTTPException) as exc:
+        await claude_plugin.async_pre_call_hook(
+            k, None, messages_request(model="claude-unknown"), "anthropic_messages"
+        )
+    assert exc.value.status_code == 422
+
+
+async def test_messages_budget_block_tells_the_developer_which_budget(
+    claude_plugin: FinOpsPlugin, ledger: Ledger
+) -> None:
+    ledger.reserve("dev/model/claude-sonnet-5-5", Decimal("1"), None)  # the model budget is full
+    with pytest.raises(HTTPException) as exc:
+        await claude_plugin.async_pre_call_hook(
+            key(team="dev", alias="dev-laptop"), None, messages_request(), "anthropic_messages"
+        )
+    assert exc.value.status_code == 403
+    detail = detail_of(exc.value)
+    assert detail["code"] == "budget_exceeded" and detail["model_budget"]["level"] == "block"
+    assert detail["error"].startswith(
+        "budget_exceeded: model 'claude-sonnet-5-5' of team 'dev' has used 100.0% of its monthly"
+    )
+    assert ledger.counter("dev").reserved_usd == 0
+
+    # the chat route keeps the bare code in `error`
+    with pytest.raises(HTTPException) as exc:
+        await claude_plugin.async_pre_call_hook(
+            key(team="dev", alias="dev-laptop"),
+            None,
+            request(model="claude-sonnet-5-5", project="my-repo"),
+            "acompletion",
+        )
+    assert detail_of(exc.value)["error"] == "budget_exceeded"
+    assert "code" not in detail_of(exc.value)
+
+
+async def test_messages_failure_releases_the_reservation(
+    claude_plugin: FinOpsPlugin, ledger: Ledger
+) -> None:
+    k = key(team="dev", alias="dev-laptop")
+    data = await claude_plugin.async_pre_call_hook(
+        k, None, messages_request(), "anthropic_messages"
+    )
+    assert data is not None and ledger.counter("dev").reserved_usd > 0
+    kwargs = {"litellm_params": {"litellm_metadata": data["litellm_metadata"]}}
+    await claude_plugin.async_log_failure_event(kwargs, None, None, None)
+    assert ledger.counter("dev").reserved_usd == 0
+    assert ledger.counter("dev/model/claude-sonnet-5-5").reserved_usd == 0

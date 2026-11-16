@@ -23,7 +23,7 @@ docker run -d --name lfg-pg -e POSTGRES_PASSWORD=change-me -e POSTGRES_DB=lfg \
     -p 5432:5432 postgres:16-alpine
 pip install -e ".[postgres]"
 export LFG_DATABASE_URL=postgresql+psycopg://postgres:change-me@localhost:5432/lfg
-llm-finops-gateway ledger migrate        # prints: ledger schema: empty -> 0002
+llm-finops-gateway ledger migrate        # prints: ledger schema: empty -> 0003
 llm-finops-gateway serve                 # or skip the line above: an empty database is set up at start
 ```
 
@@ -41,16 +41,21 @@ The schema is versioned with Alembic revisions inside the package
 | --- | --- |
 | `0001` | baseline: the two tables as 0.3 created them |
 | `0002` | `budget_counters.team` widened from 64 to 255 characters (ADR-0025) |
+| `0003` | `cost_records.cache_write_input_tokens` and `cache_write_1h_input_tokens` (ADR-0027) |
 
 - **Empty database**: brought to the latest revision when the gateway (or any `ledger`
   command) first opens it. The connecting role needs CREATE for that one start.
 - **Existing database**: the gateway never alters it. After upgrading the software run
   `llm-finops-gateway ledger migrate` with `LFG_DATABASE_URL` set to a role that may alter
   tables (the admin, not the serving role), then start the new version. Until then the
-  gateway logs a warning at start-up and `/healthz` shows `schema` behind `schema_head`.
+  gateway refuses to start and the LiteLLM plugin answers every call with an error, both
+  naming the revision found, the revision expected and the command (ADR-0027): a call that
+  cannot be recorded is not served.
 - **A database from 0.3 or earlier** has no recorded revision (`schema: unversioned`). The
   same command records it as the baseline and applies what follows; the data stays.
 - **In a container**: `docker run --rm -e LFG_DATABASE_URL=<admin url> <image> llm-finops-gateway ledger migrate`.
+  In the LiteLLM image with the plugin the entrypoint is LiteLLM's, so name ours:
+  `docker compose run --rm --entrypoint /app/.venv/bin/llm-finops-gateway litellm-finops ledger migrate`.
 - **Adding a revision** (contributors): a new `rev_NNNN_<what>.py` next to the others with
   `revision`, `down_revision` and an `upgrade()`, plus the same change in the models in
   `ledger.py`; `tests/test_migrate.py` fails when the two differ. Forward only.
@@ -69,6 +74,8 @@ The schema is versioned with Alembic revisions inside the package
 | `model` | varchar(64) | the price book model name (index) |
 | `input_tokens`, `output_tokens` | integer | as reported by the provider |
 | `cached_input_tokens` | integer | part of `input_tokens` served from the prompt cache |
+| `cache_write_input_tokens` | integer | part of `input_tokens` written to the provider's prompt cache (Anthropic), 0 elsewhere |
+| `cache_write_1h_input_tokens` | integer | part of the written tokens with the one-hour lifetime |
 | `cost_usd` | numeric(14,8) | exact decimal in the price book's currency (name kept until 1.0) |
 | `price_book_version` | varchar(32) | the version the row was priced with |
 

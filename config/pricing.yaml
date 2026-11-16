@@ -4,7 +4,9 @@
 # Any model NOT listed here is rejected by the gateway (ADR-0002).
 # `cached_input` (optional) is the price of prompt tokens the provider served from its prompt
 # cache (`usage.prompt_tokens_details.cached_tokens`); without it they cost the `input` price.
-version: "2026-11-02"
+# `cache_write` and `cache_write_1h` (optional) are the prices of prompt tokens written to the
+# cache with the 5-minute and the 1-hour lifetime (Anthropic); without them writes cost `input`.
+version: "2026-11-16"
 currency: USD
 models:
   # `provider` (optional) names the adapter that serves the model: ollama, azure_openai or
@@ -26,6 +28,14 @@ models:
   gpt-5: { input: 1.25, output: 10.00, cached_input: 0.125, provider: azure_openai, reasoning: true }
   gpt-5-mini: { input: 0.25, output: 2.00, cached_input: 0.025, provider: azure_openai, reasoning: true }
   gpt-5-nano: { input: 0.05, output: 0.40, cached_input: 0.005, provider: azure_openai, reasoning: true }
+  # Claude models, served through the LiteLLM plugin on /v1/messages (ADR-0027); the standalone
+  # gateway has no Anthropic adapter. Anthropic list prices: cache writes are 1.25 x input for
+  # 5 minutes and 2 x input for 1 hour. The Haiku row is the price up to 100K prompt tokens;
+  # longer prompts cost 0.50 / 2.50 at Anthropic, which a flat row does not model.
+  claude-fable-5-2: { input: 8.00, output: 40.00, cached_input: 0.20, cache_write: 10.00, cache_write_1h: 16.00, provider: anthropic }
+  claude-opus-5-5: { input: 4.00, output: 20.00, cached_input: 0.20, cache_write: 5.00, cache_write_1h: 8.00, provider: anthropic }
+  claude-sonnet-5-5: { input: 2.00, output: 10.00, cached_input: 0.10, cache_write: 2.50, cache_write_1h: 4.00, provider: anthropic }
+  claude-haiku-5-5: { input: 0.10, output: 0.50, cached_input: 0.01, cache_write: 0.125, cache_write_1h: 0.20, provider: anthropic }
   # Local Ollama models. Zero today; amortised GPU/hour cost is on the roadmap.
   "llama3.1:8b": { input: 0.00, output: 0.00, provider: ollama }
   "llama3.2:3b": { input: 0.00, output: 0.00, provider: ollama }

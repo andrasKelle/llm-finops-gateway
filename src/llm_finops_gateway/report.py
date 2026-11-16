@@ -190,10 +190,10 @@ h1 { font-size: 20px; margin: 0 0 4px; } h2 { font-size: 16px; margin: 28px 0 8p
 .dropdown .menu { position: absolute; z-index: 10; top: 110%; left: 0; min-width: 240px; max-height: 320px; overflow: auto; background: Canvas; color: CanvasText; border: 1px solid #999; border-radius: 6px; padding: 8px 10px; box-shadow: 0 4px 16px rgba(0,0,0,.2); }
 .dropdown .menu label { display: block; margin: 2px 0; white-space: nowrap; } .dropdown .menu hr { border: 0; border-top: 1px solid var(--line); margin: 6px 0; }
 table { border-collapse: collapse; width: 100%; } th, td { padding: 6px 10px; text-align: left; vertical-align: top; }
-th { border-bottom: 2px solid #999; font-weight: 600; } td { border-bottom: 1px solid var(--line); }
+th { border-bottom: 2px solid #999; font-weight: 600; white-space: nowrap; } td { border-bottom: 1px solid var(--line); }
 th[data-key] { cursor: pointer; user-select: none; } th[data-key]:after { content: " \\2195"; color: var(--muted); font-size: 11px; }
 th.asc:after { content: " \\2191"; } th.desc:after { content: " \\2193"; }
-td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; } td.used { white-space: nowrap; }
 .level { padding: 1px 8px; border-radius: 10px; color: #fff; font-size: 12px; }
 .ok { background: var(--ok); } .warn { background: var(--warn); } .block { background: var(--block); }
 .bar { background: var(--line); height: 8px; border-radius: 4px; width: 160px; display: inline-block; vertical-align: middle; margin-right: 8px; }
@@ -348,7 +348,7 @@ def _budget_cells(row: TeamBudgetRow) -> str:
     bar = f'<span class="bar"><i style="width:{pct:.0f}%;background:{color}"></i></span>'
     return (
         f"{_amt(b.spent_usd)}{_amt(b.limit_usd)}"
-        f'<td data-v="{_e(b.used_pct)}">{bar}{_e(b.used_pct)} %</td>'
+        f'<td class="used" data-v="{_e(b.used_pct)}">{bar}{_e(b.used_pct)} %</td>'
         f'<td data-v="{b.level}"><span class="level {b.level}">{b.level}</span> '
         f"<small>{_enforcement_note(b.warn_at_pct, b.block_at_pct, b.enforcement)}</small></td>"
     )

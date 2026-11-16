@@ -7,7 +7,14 @@ is called out here.
 
 ## [Unreleased]
 
+### Fixed
+- The report page kept the budget percentage and the column headers on one line; a long list
+  of allowed models used to push the "%" onto a second line.
+
 ### Changed
+- README images: the report page and the report inside the LiteLLM dashboard retaken on 0.4.0
+  with Claude and GPT traffic; the LiteLLM diagram names Claude Code and `/v1/messages`. The two
+  diagrams are drawn by `docs/images/diagrams.py`.
 - The release image is built for `linux/amd64` and `linux/arm64`; the `v0.4.0` and `latest`
   images were rebuilt that way. Before, a pull on Apple Silicon needed `--platform linux/amd64`.
 

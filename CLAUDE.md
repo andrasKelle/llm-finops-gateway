@@ -56,9 +56,11 @@ examples/          OpenAI SDK examples (python/chat.py, typescript/chat.ts); cla
 deploy/azure/      main.bicep + openai-role.bicep + keys.sh + db_roles.py + README: Container Apps + PostgreSQL + Key Vault (keys.yaml there is git-ignored);
                    litellm.bicep + litellm-deploy.sh + push-config.sh + litellm.config.yaml: the LiteLLM direction next to it
 docs/database.md   ledger engines, schema, PostgreSQL roles (lfgadmin/lfg_app/lfg_reporting), operations
+docs/images/       README images; diagrams.py draws architecture.svg and architecture-litellm.svg
+                   (`python docs/images/diagrams.py`, needs the [demo] extra)
 docs/              architecture.md, deployment.md, azure-setup.md, testing-plan.md, comparison.md,
                    litellm.md, adr/0001..0028
-tests/             one test module per source module, 267 tests (+4 PostgreSQL tests when LFG_TEST_DATABASE_URL is set;
+tests/             one test module per source module, 268 tests (+4 PostgreSQL tests when LFG_TEST_DATABASE_URL is set;
                    the 21 LiteLLM plugin tests skip without the [litellm] extra), FakeProvider in conftest.py
 ```
 

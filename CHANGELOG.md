@@ -12,6 +12,8 @@ is called out here.
   of allowed models used to push the "%" onto a second line.
 
 ### Changed
+- Releases are published to PyPI from the `release` workflow through a trusted publisher.
+- The README's images use absolute URLs, so they also render on the PyPI project page.
 - README images: the report page and the report inside the LiteLLM dashboard retaken on 0.4.0
   with Claude and GPT traffic; the LiteLLM diagram names Claude Code and `/v1/messages`. The two
   diagrams are drawn by `docs/images/diagrams.py`.

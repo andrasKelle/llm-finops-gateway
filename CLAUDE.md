@@ -200,8 +200,9 @@ Claude Code's own cost report and to LiteLLM's spend log.
 ## CI and release state
 
 Workflows: `ci` (ruff, mypy, pytest on 3.11 and 3.12, pip-audit, Docker build), `cla`,
-`release` (tag `v*.*.*` -> wheel + sdist + GHCR image for amd64 and arm64 + GitHub Release;
-`workflow_dispatch` with a tag rebuilds that tag's image only), Dependabot (pip,
+`release` (tag `v*.*.*` -> wheel + sdist + GHCR image for amd64 and arm64 + GitHub Release +
+PyPI through a trusted publisher in the `pypi` environment, no token; `workflow_dispatch` with a
+tag rebuilds that tag's image only), Dependabot (pip,
 github-actions grouped into one weekly PR, docker).
 
 Fixed and merged on 2026-10-28 (PRs #6 and #8), all green since:

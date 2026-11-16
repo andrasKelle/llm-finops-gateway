@@ -30,6 +30,10 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install build && python -m build
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/*
       - uses: docker/login-action@v4
         with:
           registry: ghcr.io
@@ -54,3 +58,20 @@ jobs:
         with:
           files: dist/*
           generate_release_notes: true
+
+  # The wheel and the sdist go to PyPI through a trusted publisher: PyPI trusts this workflow
+  # in the `pypi` environment, so there is no token in the repository. Tag pushes only; a
+  # manual image rebuild does not publish.
+  pypi:
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1

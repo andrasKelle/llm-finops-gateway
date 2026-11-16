@@ -14,9 +14,12 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import text
+from alembic.autogenerate import compare_metadata
+from alembic.migration import MigrationContext
+from sqlalchemy import create_engine, text
 
-from llm_finops_gateway.ledger import CostEntry, Ledger
+from llm_finops_gateway import migrate
+from llm_finops_gateway.ledger import Base, CostEntry, Ledger
 
 URL = os.environ.get("LFG_TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(not URL, reason="LFG_TEST_DATABASE_URL not set")
@@ -75,3 +78,30 @@ def test_duplicate_request_id_is_rejected_on_postgres(pg_ledger: Ledger) -> None
     pg_ledger.record(entry)
     with pytest.raises(Exception):  # noqa: B017 - IntegrityError wrapped by SQLAlchemy
         pg_ledger.record(entry)
+
+
+def test_migrations_on_postgres_from_an_unversioned_database() -> None:
+    assert URL is not None
+    engine = create_engine(URL)
+    with engine.begin() as conn:
+        for table in ("cost_records", "budget_counters", "alembic_version"):
+            conn.execute(text(f"DROP TABLE IF EXISTS {table}"))
+    migrate.upgrade(engine, "0001")
+    with engine.begin() as conn:  # as 0.3 left it: baseline tables, no revision recorded
+        conn.execute(text("DROP TABLE alembic_version"))
+        conn.execute(text("INSERT INTO budget_counters VALUES ('platform', '2026-11', 1.5, 0)"))
+    assert migrate.upgrade(engine) == (None, migrate.head())
+    with engine.connect() as conn:
+        width = conn.execute(
+            text(
+                "SELECT character_maximum_length FROM information_schema.columns "
+                "WHERE table_name = 'budget_counters' AND column_name = 'team'"
+            )
+        ).scalar_one()
+        diff = compare_metadata(MigrationContext.configure(conn), Base.metadata)
+    assert width == 255 and diff == []
+    ledger = Ledger(URL)
+    assert ledger.schema_revision == migrate.head()
+    assert ledger.counter("platform", "2026-11").spent_usd == Decimal("1.5")
+    long_scope = "team/project/model/" + "m" * 120
+    assert ledger.reserve(long_scope, Decimal("1"), None) is True

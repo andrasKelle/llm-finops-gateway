@@ -475,7 +475,7 @@ Environment variables (prefix `LFG_`; a `.env` file is read if present):
 | `LFG_KEYS_PATH`                 | `config/keys.yaml`        | hashes only                             |
 | `LFG_PRICING_PATH`              | `config/pricing.yaml`     |                                         |
 | `LFG_POLICIES_PATH`             | `config/policies.yaml`    | missing file = no policies              |
-| `LFG_DATABASE_URL`              | `sqlite:///./gateway.db`  | any SQLAlchemy URL; PostgreSQL via `pip install ".[postgres]"` and `postgresql+psycopg://...` |
+| `LFG_DATABASE_URL`              | `sqlite:///./gateway.db`  | any SQLAlchemy URL; PostgreSQL via `pip install ".[postgres]"` and `postgresql+psycopg://...`. An empty database is set up at start; after an upgrade run `llm-finops-gateway ledger migrate` ([docs/database.md](docs/database.md)) |
 | `LFG_REQUEST_TIMEOUT_SECONDS`   | `120`                     |                                         |
 | `LFG_REPORT_RATES`              | `{}`                      | display currencies on `/finops` as units per 1 book unit, e.g. `{"EUR": 0.88}` |
 | `LFG_ALERT_WEBHOOK_URL`         |                           | Slack/Teams incoming webhook or any JSON endpoint; empty = off |
@@ -581,11 +581,9 @@ Architecture notes: [docs/architecture.md](docs/architecture.md). Operations:
 
 ## Roadmap
 
-- **Next**: OIDC attribution (Entra ID app roles, Keycloak client roles) alongside team keys;
-  evaluation replay and regression scoring ([ADR-0009](docs/adr/0009-evaluation-replay.md),
-  design proposed).
-- **Then**: token budgets and amortised or shared-pool pricing for self-hosted models;
-  schema migrations (Alembic) instead of `create_all`.
+- **Next**: evaluation replay and regression scoring
+  ([ADR-0009](docs/adr/0009-evaluation-replay.md), design proposed).
+- **Then**: token budgets and amortised or shared-pool pricing for self-hosted models.
 - **Later**: PII and content hooks; shared rate limits (Redis) for multi-replica deployments;
   Helm chart; Anthropic Messages adapter and Claude in Microsoft Foundry.
 

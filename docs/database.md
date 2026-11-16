@@ -1,6 +1,6 @@
 # The ledger database
 
-One database, two tables, three roles. Everything the gateway persists is here; everything it
+One database, two tables and a revision marker, three roles. Everything the gateway persists is here; everything it
 decides with (prices, policies, key hashes) is a file in git and is not here (ADR-0002,
 ADR-0005, ADR-0006).
 
@@ -14,11 +14,46 @@ ADR-0005, ADR-0006).
 
 The driver for PostgreSQL comes with the `[postgres]` extra and is in the Docker image.
 
-## Schema
+## Local PostgreSQL
 
-Created by SQLAlchemy `create_all` on the first start (`ledger.py`); nothing else creates or
-alters tables. Adding a column later means an `ALTER TABLE` by hand, as the test plan did for
-`cached_input_tokens`.
+An empty database is enough; the gateway creates the schema when it first opens it.
+
+```bash
+docker run -d --name lfg-pg -e POSTGRES_PASSWORD=change-me -e POSTGRES_DB=lfg \
+    -p 5432:5432 postgres:16-alpine
+pip install -e ".[postgres]"
+export LFG_DATABASE_URL=postgresql+psycopg://postgres:change-me@localhost:5432/lfg
+llm-finops-gateway ledger migrate        # prints: ledger schema: empty -> 0002
+llm-finops-gateway serve                 # or skip the line above: an empty database is set up at start
+```
+
+To look at it: `docker exec -it lfg-pg psql -U postgres lfg`, then `\dt` lists `cost_records`,
+`budget_counters` and `alembic_version`, and `select * from alembic_version;` shows the
+revision. `/healthz` shows the same as `schema`, next to `schema_head`, the revision the
+running version expects.
+
+## Schema and migrations
+
+The schema is versioned with Alembic revisions inside the package
+(`src/llm_finops_gateway/migrations/versions`, ADR-0026):
+
+| Revision | Change |
+| --- | --- |
+| `0001` | baseline: the two tables as 0.3 created them |
+| `0002` | `budget_counters.team` widened from 64 to 255 characters (ADR-0025) |
+
+- **Empty database**: brought to the latest revision when the gateway (or any `ledger`
+  command) first opens it. The connecting role needs CREATE for that one start.
+- **Existing database**: the gateway never alters it. After upgrading the software run
+  `llm-finops-gateway ledger migrate` with `LFG_DATABASE_URL` set to a role that may alter
+  tables (the admin, not the serving role), then start the new version. Until then the
+  gateway logs a warning at start-up and `/healthz` shows `schema` behind `schema_head`.
+- **A database from 0.3 or earlier** has no recorded revision (`schema: unversioned`). The
+  same command records it as the baseline and applies what follows; the data stays.
+- **In a container**: `docker run --rm -e LFG_DATABASE_URL=<admin url> <image> llm-finops-gateway ledger migrate`.
+- **Adding a revision** (contributors): a new `rev_NNNN_<what>.py` next to the others with
+  `revision`, `down_revision` and an `upgrade()`, plus the same change in the models in
+  `ledger.py`; `tests/test_migrate.py` fails when the two differ. Forward only.
 
 ### `cost_records`: one row per completed call
 
@@ -47,10 +82,8 @@ No prompt or completion text, no headers, no client IP.
 | `spent_usd` | numeric(14,8) | sum of recorded cost this month |
 | `reserved_usd` | numeric(14,8) | estimates reserved by calls in flight (ADR-0007) |
 
-Databases created before 0.4 have `team` as `varchar(64)`; PostgreSQL enforces the width, so
-widen it before using model budgets with long names:
-`ALTER TABLE budget_counters ALTER COLUMN team TYPE VARCHAR(255);` (`create_all` does not alter
-columns, see issue #58).
+Databases created before 0.4 have `team` as `varchar(64)` until `ledger migrate` has run;
+PostgreSQL enforces the width, so a model budget with a long scope key needs revision `0002`.
 
 Enforcement reads and updates this row with one conditional `UPDATE`; reports read
 `cost_records`. The two are updated in the same transaction when a call is recorded.
@@ -59,8 +92,8 @@ Enforcement reads and updates this row with one conditional `UPDATE`; reports re
 
 | Role | Grants | Used by |
 | --- | --- | --- |
-| `lfgadmin` | server admin, owns the tables | the Bicep deployment, `db_roles.py`, schema changes |
-| `lfg_app` | CONNECT, USAGE on `public`, SELECT/INSERT/UPDATE on the two tables, USAGE on their sequences; the same on tables created later | the gateway (`database-url` in Key Vault) |
+| `lfgadmin` | server admin, owns the tables | the Bicep deployment, `db_roles.py`, `ledger migrate` |
+| `lfg_app` | CONNECT, USAGE on `public`, SELECT/INSERT/UPDATE on the two tables, SELECT on `alembic_version`, USAGE on their sequences; the same on tables created later | the gateway (`database-url` in Key Vault) |
 | `lfg_reporting` | CONNECT, USAGE, SELECT on every table, also future ones | BI tools, spreadsheets, `ledger reconcile` from a laptop, anyone who reads (`database-url-reporting` in Key Vault) |
 
 The gateway cannot DELETE or TRUNCATE; the reporting role cannot write. The script also
@@ -74,6 +107,10 @@ Connecting from a BI tool or psql: host and database from `database-url-reportin
 
 ## Operations
 
+- **Upgrades**: read the release notes for a schema revision; when there is one, run
+  `ledger migrate` with the admin URL before starting the new version. On Azure:
+  `LFG_DATABASE_URL="postgresql+psycopg://lfgadmin:<postgres-password>@<server>:5432/lfg?sslmode=require" llm-finops-gateway ledger migrate`
+  from a client the server's firewall allows.
 - **Backups**: Flexible Server keeps 7 days of automatic backups (Bicep); SQLite is a file.
 - **Retention**: nothing is deleted by the gateway. Archive or prune `cost_records` by `ts` with
   the admin role when the retention policy says so; `budget_counters` rows are one per team

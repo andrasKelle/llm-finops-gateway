@@ -31,6 +31,7 @@ immutable once accepted; a later ADR supersedes an earlier one rather than editi
 | [0024](0024-litellm-dashboard-plugin.md) | The report page runs inside the LiteLLM dashboard as a plugin | Accepted |
 | [0025](0025-per-model-budgets.md) | Budgets per model, on a team or a registered project | Accepted |
 | [0026](0026-schema-migrations.md) | The ledger schema is versioned with Alembic migrations | Accepted |
+| [0027](0027-claude-code-behind-the-plugin.md) | Claude Code and other Anthropic Messages clients run behind the LiteLLM plugin | Accepted |
 
 ## Template
 

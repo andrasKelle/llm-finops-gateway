@@ -27,7 +27,7 @@ def test_healthz(client: TestClient) -> None:
     # the string in __init__.py is bumped by hand; it must match the version in pyproject.toml
     pyproject = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
     assert r.json()["version"] == pyproject["project"]["version"]
-    assert r.json()["schema"] == r.json()["schema_head"] == "0002"
+    assert r.json()["schema"] == r.json()["schema_head"] == "0003"
 
 
 def test_models_lists_price_book(client: TestClient) -> None:

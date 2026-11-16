@@ -252,14 +252,29 @@ def month_start(now: datetime | None = None) -> datetime:
     return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
 
+def _content_chars(content: Any) -> int:
+    """Characters of a message content: a string, or a list of parts. A part counts its
+    ``text``, an Anthropic ``tool_use`` part its ``input`` and a ``tool_result`` part its
+    nested content; images and other parts count nothing."""
+    if isinstance(content, str):
+        return len(content)
+    if not isinstance(content, list):
+        return 0
+    chars = 0
+    for part in content:
+        if not isinstance(part, dict):
+            continue
+        chars += len(str(part.get("text", "")))
+        if part.get("type") == "tool_use":
+            chars += len(json.dumps(part.get("input")))
+        elif part.get("type") == "tool_result":
+            chars += _content_chars(part.get("content"))
+    return chars
+
+
 def _message_chars(message: dict[str, Any]) -> int:
     """Characters that reach the model: text content or text parts, plus tool-call payloads."""
-    content = message.get("content")
-    chars = 0
-    if isinstance(content, str):
-        chars += len(content)
-    elif isinstance(content, list):
-        chars += sum(len(str(p.get("text", ""))) for p in content if isinstance(p, dict))
+    chars = _content_chars(message.get("content"))
     if message.get("tool_calls"):
         chars += len(json.dumps(message["tool_calls"]))
     return chars

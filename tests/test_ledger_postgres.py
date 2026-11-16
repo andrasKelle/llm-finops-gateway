@@ -28,6 +28,7 @@ pytestmark = pytest.mark.skipif(not URL, reason="LFG_TEST_DATABASE_URL not set")
 @pytest.fixture
 def pg_ledger() -> Ledger:
     assert URL is not None
+    migrate.upgrade(create_engine(URL))  # the test database outlives the code's revisions
     ledger = Ledger(URL)
     with ledger._engine.begin() as conn:  # noqa: SLF001 - test-only cleanup
         conn.execute(text("DELETE FROM cost_records"))

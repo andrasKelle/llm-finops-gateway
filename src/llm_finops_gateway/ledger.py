@@ -7,7 +7,6 @@ pass; the ledger row and the counter settlement are written in one transaction.
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -33,9 +32,11 @@ from sqlalchemy.pool import StaticPool
 from . import migrate
 from .pricing import money
 
-log = logging.getLogger("llm_finops_gateway.ledger")
-
 ZERO = Decimal(0)
+
+
+class SchemaOutOfDateError(RuntimeError):
+    """The database is not at the schema revision this version of the code expects."""
 
 
 class Base(DeclarativeBase):
@@ -57,6 +58,9 @@ class CostRecord(Base):
     input_tokens: Mapped[int] = mapped_column(Integer)
     output_tokens: Mapped[int] = mapped_column(Integer)
     cached_input_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # prompt tokens written to the provider's cache, and the part with the one-hour lifetime
+    cache_write_input_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    cache_write_1h_input_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     cost_usd: Mapped[Decimal] = mapped_column(Numeric(14, 8))
     price_book_version: Mapped[str] = mapped_column(String(32))
 
@@ -88,6 +92,8 @@ class CostEntry:
     ts: datetime | None = None  # defaults to now (UTC); explicit only for backfills and tests
     key_id: str | None = None
     cached_input_tokens: int = 0
+    cache_write_input_tokens: int = 0
+    cache_write_1h_input_tokens: int = 0
 
 
 @dataclass(frozen=True)
@@ -117,6 +123,8 @@ class LedgerRow:
     cached_input_tokens: int
     cost_usd: Decimal
     price_book_version: str
+    cache_write_input_tokens: int = 0
+    cache_write_1h_input_tokens: int = 0
 
 
 @dataclass(frozen=True)
@@ -152,16 +160,17 @@ def month_key(when: datetime | None = None) -> str:
 class Ledger:
     def __init__(self, url: str = "sqlite:///./gateway.db") -> None:
         self._engine: Engine = _make_engine(url)
-        # An empty database gets the schema; an existing one is never altered here (ADR-0026).
+        # An empty database gets the schema. An existing one is never altered here, and one
+        # at another revision is refused: writing rows to a schema this code does not know
+        # would fail after the upstream call was paid for (ADR-0026, ADR-0027).
         if migrate.is_empty(self._engine):
             migrate.upgrade(self._engine)
         self.schema_revision = migrate.current(self._engine)
         if self.schema_revision != migrate.head():
-            log.warning(
-                "ledger schema is at revision %s, this version expects %s; run "
-                "`llm-finops-gateway ledger migrate` with a role that may alter tables",
-                self.schema_revision or "unversioned",
-                migrate.head(),
+            raise SchemaOutOfDateError(
+                f"ledger schema is at revision {self.schema_revision or 'unversioned'}, this "
+                f"version expects {migrate.head()}; run `llm-finops-gateway ledger migrate` "
+                "with a role that may alter tables, then start again"
             )
 
     # ---- writes ------------------------------------------------------------------------
@@ -194,6 +203,8 @@ class Ledger:
                     input_tokens=entry.input_tokens,
                     output_tokens=entry.output_tokens,
                     cached_input_tokens=entry.cached_input_tokens,
+                    cache_write_input_tokens=entry.cache_write_input_tokens,
+                    cache_write_1h_input_tokens=entry.cache_write_1h_input_tokens,
                     cost_usd=entry.cost_usd,
                     price_book_version=entry.price_book_version,
                 )
@@ -328,6 +339,8 @@ class Ledger:
                     cached_input_tokens=r.cached_input_tokens,
                     cost_usd=clean(r.cost_usd),
                     price_book_version=r.price_book_version,
+                    cache_write_input_tokens=r.cache_write_input_tokens,
+                    cache_write_1h_input_tokens=r.cache_write_1h_input_tokens,
                 )
                 for r in records
             ]

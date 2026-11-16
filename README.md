@@ -75,6 +75,22 @@ example stack: [examples/litellm/](examples/litellm/).
 
 ![The report page inside the LiteLLM dashboard](docs/images/litellm-dashboard-finops.png)
 
+### Claude Code and other coding agents
+
+The plugin also covers LiteLLM's Anthropic `/v1/messages` route, so Claude Code runs behind it
+with three environment variables (ADR-0027):
+
+```bash
+export ANTHROPIC_BASE_URL=http://localhost:4002          # the LiteLLM proxy with the plugin
+export ANTHROPIC_AUTH_TOKEN=<LiteLLM key of the developer's team>
+export ANTHROPIC_CUSTOM_HEADERS="X-Project: my-repo"
+```
+
+Every call of a session is attributed to the team and the project, priced with cache reads
+and cache writes at their own rates, and checked against the team's, the project's and the
+model's budget before it is sent; a rejection shows up in Claude Code with its reason. Stack
+and walk-through: [examples/claude-code/](examples/claude-code/).
+
 ## Try it from a browser
 
 `examples/assistant/` is a small Streamlit page: sign in with a key, and the page shows what
@@ -206,6 +222,8 @@ With the shipped price book, setting the two Azure variables next to a local Oll
 provider serves each model. A row naming a provider that is not configured falls back to the
 default with a startup warning. `cached_input` prices the prompt tokens the provider served
 from its cache (`usage.prompt_tokens_details.cached_tokens`), the way Azure and OpenAI bill them.
+`cache_write` and `cache_write_1h` price the prompt tokens written to the cache, the way
+Anthropic bills them (the Claude rows, served through the LiteLLM plugin).
 `reasoning: true` marks the gpt-5 and o-series rows: the gateway sends `max_completion_tokens`
 instead of `max_tokens` and drops the temperature, which those models reject, so OpenAI SDK
 defaults keep working. Reasoning tokens are part of `completion_tokens`, billed as output and
@@ -475,7 +493,7 @@ Environment variables (prefix `LFG_`; a `.env` file is read if present):
 | `LFG_KEYS_PATH`                 | `config/keys.yaml`        | hashes only                             |
 | `LFG_PRICING_PATH`              | `config/pricing.yaml`     |                                         |
 | `LFG_POLICIES_PATH`             | `config/policies.yaml`    | missing file = no policies              |
-| `LFG_DATABASE_URL`              | `sqlite:///./gateway.db`  | any SQLAlchemy URL; PostgreSQL via `pip install ".[postgres]"` and `postgresql+psycopg://...`. An empty database is set up at start; after an upgrade run `llm-finops-gateway ledger migrate` ([docs/database.md](docs/database.md)) |
+| `LFG_DATABASE_URL`              | `sqlite:///./gateway.db`  | any SQLAlchemy URL; PostgreSQL via `pip install ".[postgres]"` and `postgresql+psycopg://...`. An empty database is set up at start; after an upgrade run `llm-finops-gateway ledger migrate`, the gateway does not start on an older schema ([docs/database.md](docs/database.md)) |
 | `LFG_REQUEST_TIMEOUT_SECONDS`   | `120`                     |                                         |
 | `LFG_REPORT_RATES`              | `{}`                      | display currencies on `/finops` as units per 1 book unit, e.g. `{"EUR": 0.88}` |
 | `LFG_ALERT_WEBHOOK_URL`         |                           | Slack/Teams incoming webhook or any JSON endpoint; empty = off |

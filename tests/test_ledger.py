@@ -119,3 +119,24 @@ def test_counter_is_per_month(ledger: Ledger) -> None:
     assert ledger.counter(
         "platform", month=(start - timedelta(days=1)).strftime("%Y-%m")
     ).spent_usd == Decimal("9")
+
+
+def test_cache_write_tokens_are_stored_on_the_row(ledger: Ledger) -> None:
+    entry = CostEntry(
+        **{
+            **_entry("cw").__dict__,
+            "input_tokens": 23_120,
+            "cached_input_tokens": 20_000,
+            "cache_write_input_tokens": 3_000,
+            "cache_write_1h_input_tokens": 1_000,
+        }
+    )
+    ledger.record(entry)
+    ledger.record(_entry("plain"))
+    now = datetime.now(UTC)
+    rows = {
+        r.request_id: r for r in ledger.rows(now - timedelta(hours=1), now + timedelta(hours=1))
+    }
+    assert rows["cw"].cache_write_input_tokens == 3_000
+    assert rows["cw"].cache_write_1h_input_tokens == 1_000
+    assert rows["plain"].cache_write_input_tokens == 0

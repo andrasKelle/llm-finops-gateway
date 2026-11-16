@@ -21,6 +21,10 @@ class ModelPrice:
     input_per_million: Decimal
     output_per_million: Decimal
     cached_input_per_million: Decimal | None = None  # None: cached tokens cost the input price
+    # Prompt tokens written to the provider's cache (Anthropic): the 5-minute and the 1-hour
+    # lifetime. None: the input price, and the 1-hour price falls back to the 5-minute one.
+    cache_write_per_million: Decimal | None = None
+    cache_write_1h_per_million: Decimal | None = None
     provider: str | None = None  # adapter that serves the model; None: the default provider
     reasoning: bool = False  # OpenAI reasoning family: max_completion_tokens, fixed temperature
 
@@ -72,11 +76,14 @@ class PriceBook:
             if not isinstance(spec, dict) or "input" not in spec or "output" not in spec:
                 raise PriceBookError(f"{path}: model '{name}' needs 'input' and 'output'")
             cached = spec.get("cached_input")
+            write, write_1h = spec.get("cache_write"), spec.get("cache_write_1h")
             provider = spec.get("provider")
             prices[str(name)] = ModelPrice(
                 input_per_million=Decimal(str(spec["input"])),
                 output_per_million=Decimal(str(spec["output"])),
                 cached_input_per_million=None if cached is None else Decimal(str(cached)),
+                cache_write_per_million=None if write is None else Decimal(str(write)),
+                cache_write_1h_per_million=None if write_1h is None else Decimal(str(write_1h)),
                 provider=None if provider is None else str(provider),
                 reasoning=bool(spec.get("reasoning", False)),
             )
@@ -110,14 +117,32 @@ class PriceBook:
             raise UnknownModelError(model) from exc
 
     def cost(
-        self, model: str, input_tokens: int, output_tokens: int, cached_input_tokens: int = 0
+        self,
+        model: str,
+        input_tokens: int,
+        output_tokens: int,
+        cached_input_tokens: int = 0,
+        cache_write_input_tokens: int = 0,
+        cache_write_1h_input_tokens: int = 0,
     ) -> Decimal:
-        """Cost of one call. ``cached_input_tokens`` is the part of ``input_tokens`` the provider
-        served from its prompt cache; it is billed at ``cached_input`` when the model has one."""
-        if input_tokens < 0 or output_tokens < 0 or cached_input_tokens < 0:
+        """Cost of one call. ``input_tokens`` is the whole prompt. Of it,
+        ``cached_input_tokens`` were served from the provider's prompt cache (billed at
+        ``cached_input``) and ``cache_write_input_tokens`` were written to it (billed at
+        ``cache_write``); ``cache_write_1h_input_tokens`` is the part of the written tokens
+        with the one-hour lifetime (billed at ``cache_write_1h``). The rest costs ``input``."""
+        counts = (
+            input_tokens,
+            output_tokens,
+            cached_input_tokens,
+            cache_write_input_tokens,
+            cache_write_1h_input_tokens,
+        )
+        if min(counts) < 0:
             raise ValueError("token counts must be non-negative")
-        if cached_input_tokens > input_tokens:
-            raise ValueError("cached_input_tokens cannot exceed input_tokens")
+        if cached_input_tokens + cache_write_input_tokens > input_tokens:
+            raise ValueError("cached and cache-write tokens cannot exceed input_tokens")
+        if cache_write_1h_input_tokens > cache_write_input_tokens:
+            raise ValueError("cache_write_1h_input_tokens cannot exceed cache_write_input_tokens")
         try:
             price = self._prices[model]
         except KeyError as exc:
@@ -127,9 +152,22 @@ class PriceBook:
             if price.cached_input_per_million is None
             else price.cached_input_per_million
         )
+        write_price = (
+            price.input_per_million
+            if price.cache_write_per_million is None
+            else price.cache_write_per_million
+        )
+        write_1h_price = (
+            write_price
+            if price.cache_write_1h_per_million is None
+            else price.cache_write_1h_per_million
+        )
+        fresh = input_tokens - cached_input_tokens - cache_write_input_tokens
         per_million = Decimal(1_000_000)
         return (
-            Decimal(input_tokens - cached_input_tokens) * price.input_per_million
+            Decimal(fresh) * price.input_per_million
             + Decimal(cached_input_tokens) * cached_price
+            + Decimal(cache_write_input_tokens - cache_write_1h_input_tokens) * write_price
+            + Decimal(cache_write_1h_input_tokens) * write_1h_price
             + Decimal(output_tokens) * price.output_per_million
         ) / per_million

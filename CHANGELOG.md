@@ -7,8 +7,15 @@ is called out here.
 
 ## [Unreleased]
 
+### Added
+- Nothing yet.
+
+## [0.4.1] - 2026-11-16
+
+The first release on PyPI, with an image for both architectures and a fix to the report page.
+
 ### Fixed
-- The report page kept the budget percentage and the column headers on one line; a long list
+- The report page keeps the budget percentage and the column headers on one line; a long list
   of allowed models used to push the "%" onto a second line.
 
 ### Changed
@@ -275,7 +282,8 @@ First public release.
   results, comparison with existing gateways, ADRs 0001 to 0009, CONTRIBUTING, GOVERNANCE,
   CODE_OF_CONDUCT, SECURITY, CLA, MAINTAINERS.
 
-[Unreleased]: https://github.com/andrasKelle/llm-finops-gateway/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/andrasKelle/llm-finops-gateway/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/andrasKelle/llm-finops-gateway/releases/tag/v0.4.1
 [0.4.0]: https://github.com/andrasKelle/llm-finops-gateway/releases/tag/v0.4.0
 [0.3.1]: https://github.com/andrasKelle/llm-finops-gateway/releases/tag/v0.3.1
 [0.3.0]: https://github.com/andrasKelle/llm-finops-gateway/releases/tag/v0.3.0

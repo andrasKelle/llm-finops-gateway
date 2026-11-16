@@ -12,7 +12,7 @@ will become the plugin's user guide.
 ## Install
 
 ```bash
-# not on PyPI yet: install from GitHub (append @v0.4.0 to pin a release) or from a checkout
+# not on PyPI yet: install from GitHub (append @v0.4.1 to pin a release) or from a checkout
 pip install "llm-finops-gateway[litellm] @ git+https://github.com/andrasKelle/llm-finops-gateway"
 ```
 

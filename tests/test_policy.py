@@ -719,3 +719,105 @@ def test_http_model_budget_in_headers_body_and_report(
         assert projects["internal-tools"]["model_budgets"] is None
         assert teams["open"]["budget"] is None
         assert teams["open"]["model_budgets"]["priced"]["enforcement"] == "warn"
+
+
+# ---- cap on the reserved output tokens (ADR-0028) ----------------------------------------
+
+CAP_YAML = """\
+version: cap
+defaults:
+  allowed_models: ["*"]
+teams:
+  capped:
+    budget: {monthly_usd: 0.05, reserve_output_tokens_max: 1000}
+  uncapped:
+    budget: {monthly_usd: 0.05}
+  layered:
+    budget: {monthly_usd: 5, reserve_output_tokens_max: 8000}
+    model_budgets:
+      priced: {monthly_usd: 1, reserve_output_tokens_max: 4000}
+      free: {monthly_usd: 1}
+    projects:
+      tight:
+        budget: {monthly_usd: 1, reserve_output_tokens_max: 2000}
+      loose: {}
+  model-only:
+    model_budgets:
+      priced: {monthly_usd: 1, reserve_output_tokens_max: 500}
+"""
+
+
+@pytest.fixture
+def cap_policies(tmp_path: Path) -> PolicySet:
+    path = tmp_path / "cap.yaml"
+    path.write_text(CAP_YAML)
+    return PolicySet.from_yaml(path)
+
+
+def test_estimate_output_is_bounded_by_the_cap() -> None:
+    from llm_finops_gateway.policy import estimate_tokens
+
+    messages: list[dict[str, Any]] = [{"role": "user", "content": "hi"}]
+    assert estimate_tokens(messages, 128_000, 1024, output_cap=8_000)[1] == 8_000
+    assert estimate_tokens(messages, 500, 1024, output_cap=8_000)[1] == 500
+    assert estimate_tokens(messages, None, 1024, output_cap=100)[1] == 100
+    assert estimate_tokens(messages, 128_000, 1024)[1] == 128_000
+
+
+def test_the_smallest_cap_among_the_budgets_of_the_call_applies(
+    cap_policies: PolicySet, ledger: Ledger
+) -> None:
+    engine = PolicyEngine(cap_policies, ledger)
+    assert engine.reserve_output_cap("uncapped", "p", "priced") is None
+    assert engine.reserve_output_cap("capped", "p", "priced") == 1000
+    assert engine.reserve_output_cap("layered", "loose", "free") == 8000  # the team's
+    assert engine.reserve_output_cap("layered", "loose", "priced") == 4000  # the model's
+    assert engine.reserve_output_cap("layered", "tight", "priced") == 2000  # the project's
+    assert engine.reserve_output_cap("layered", "not-registered", "free") == 8000
+    assert engine.reserve_output_cap("model-only", "p", "priced") == 500
+    assert engine.reserve_output_cap("model-only", "p", "free") is None
+
+
+def test_cap_must_be_positive(tmp_path: Path) -> None:
+    path = tmp_path / "bad.yaml"
+    path.write_text("teams:\n  t:\n    budget: {monthly_usd: 1, reserve_output_tokens_max: 0}\n")
+    with pytest.raises(PolicyError):
+        PolicySet.from_yaml(path)
+
+
+def test_http_cap_admits_a_call_that_asks_for_a_large_max_tokens(
+    pricing_path: Path,
+    price_book: PriceBook,
+    cap_policies: PolicySet,
+    ledger: Ledger,
+    fake_provider: FakeProvider,
+) -> None:
+    settings = Settings(
+        provider=ProviderKind.OLLAMA,
+        auth_mode="headers",
+        pricing_path=pricing_path,
+        database_url="sqlite:///:memory:",
+    )
+    app = create_app(
+        settings,
+        price_book=price_book,
+        policies=cap_policies,
+        keyring=KeyRing.empty(),
+        ledger=ledger,
+        provider=fake_provider,
+    )
+    # 100,000 output tokens at 10 per 1M are 1 USD: twenty times the 0.05 budget
+    body = {**BODY, "max_tokens": 100_000}
+    with TestClient(app) as c:
+        r = c.post("/v1/chat/completions", json=body, headers={"X-Team": "uncapped", **PROJECT})
+        assert r.status_code == 403 and r.json()["detail"]["error"] == "budget_exceeded"
+        assert "estimated at 1.00002 USD" in r.json()["detail"]["message"]
+
+        # with the cap the reservation assumes 1,000 output tokens: 0.01002 USD fits
+        r = c.post("/v1/chat/completions", json=body, headers={"X-Team": "capped", **PROJECT})
+        assert r.status_code == 200
+        assert r.json()["x_finops"]["policy"]["budget"]["reserved_usd"] == "0"
+        assert fake_provider.calls[-1]["max_tokens"] == 100_000  # the request is not changed
+
+
+PROJECT = {"X-Project": "demo"}

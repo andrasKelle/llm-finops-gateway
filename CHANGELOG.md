@@ -27,6 +27,11 @@ is called out here.
   `0003`). The price book has rows for Claude Fable 5.2, Opus 5.5, Sonnet 5.5 and Haiku 5.5 at
   Anthropic's list prices (version `2026-11-16`).
 
+- Reservation cap (ADR-0028): `reserve_output_tokens_max` on a team, project or model budget
+  bounds the output tokens a pre-call reservation assumes, for clients that send a very large
+  `max_tokens` (Claude Code asks for 128,000). The smallest cap among the call's budgets
+  applies; the request itself is not changed. Without the key nothing changes.
+
 ### Changed
 - **Upgrade step**: after installing this version run `llm-finops-gateway ledger migrate` once
   against an existing database (SQLite or PostgreSQL). It records a 0.3 database as the baseline

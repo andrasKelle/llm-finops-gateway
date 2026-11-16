@@ -64,8 +64,9 @@ book mismatch (regional SKU billed, global price in the book, 0.0123 USD), which
 
 ## Already running LiteLLM?
 
-The same rules ship as a LiteLLM proxy plugin: `pip install "llm-finops-gateway[litellm]"`,
-register `llm_finops_gateway.litellm_plugin.plugin` under `litellm_settings.callbacks`, point
+The same rules ship as a LiteLLM proxy plugin:
+`pip install "llm-finops-gateway[litellm] @ git+https://github.com/andrasKelle/llm-finops-gateway"`
+(the package is not on PyPI yet; append `@v0.3.1` to pin a release), register `llm_finops_gateway.litellm_plugin.plugin` under `litellm_settings.callbacks`, point
 `LFG_PRICING_PATH`, `LFG_POLICIES_PATH` and `LFG_DATABASE_URL` at your files, and every chat call
 through LiteLLM gets mandatory project attribution, fail-closed pricing, budgets with warn and
 block, the `X-FinOps-*` headers, a ledger row and the gateway's Prometheus metrics on LiteLLM's
@@ -98,7 +99,7 @@ the policy says about it (team, allowed models, budget, registered projects and 
 pick a project and a use case, ask about the gateway, and read the receipt next to every
 answer: cost, cached input tokens, team and project budget, warnings, or the rejection that
 stopped the call before the model. The answers come from this repository's documentation,
-sent through the same gateway, so the demo traffic is attributed and priced too. `pip install "llm-finops-gateway[assistant]"` and
+sent through the same gateway, so the demo traffic is attributed and priced too. `pip install ".[assistant]"` in a checkout and
 `streamlit run examples/assistant/app.py`, or the `assistant` service of the LiteLLM compose
 stack on port 8501.
 
@@ -182,7 +183,7 @@ Then run the gateway and call it with `"model": "gpt-4o-mini"`. Every model name
 exist in `config/pricing.yaml`. A step-by-step `az` CLI walkthrough for a disposable test
 setup is in [docs/azure-setup.md](docs/azure-setup.md).
 
-Without a key, with the gateway's own identity (ADR-0014): `pip install "llm-finops-gateway[azure]"`,
+Without a key, with the gateway's own identity (ADR-0014): `pip install ".[azure]"`,
 set `LFG_AZURE_OPENAI_AUTH=entra`, drop `LFG_AZURE_OPENAI_API_KEY`, and give the identity the
 `Cognitive Services OpenAI User` role on the resource. `DefaultAzureCredential` picks the
 Container App's managed identity in Azure and your `az login` session on a laptop.
@@ -366,7 +367,8 @@ teams:
 
 - `warn_at` and `block_at` are fractions of `monthly_usd`; the budget is month to date (UTC).
 - Before each call the gateway reserves an estimate (prompt chars / 4, output = `max_tokens` or
-  `reserve_output_tokens`, default 1024) with one atomic conditional update; after the call it
+  `reserve_output_tokens`, default 1024; `reserve_output_tokens_max` caps what a large
+  `max_tokens` reserves, ADR-0028) with one atomic conditional update; after the call it
   settles the actual cost; on upstream failure it releases the reservation (ADR-0007).
 - `enforcement: warn` keeps the warnings and the log line but never returns 403.
 - `rate_limit.requests_per_minute` rejects bursts with 429 and `Retry-After`; per gateway
@@ -506,7 +508,7 @@ Environment variables (prefix `LFG_`; a `.env` file is read if present):
 ### Tracing to Langfuse, Grafana or Azure Monitor
 
 ```bash
-pip install "llm-finops-gateway[otel]"
+pip install ".[otel]"
 export LFG_OTEL_ENABLED=true
 export OTEL_EXPORTER_OTLP_ENDPOINT=https://cloud.langfuse.com/api/public/otel   # or your collector
 export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic%20$(printf 'pk-lf-...:sk-lf-...' | base64)"

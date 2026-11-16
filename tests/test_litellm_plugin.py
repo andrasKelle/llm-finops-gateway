@@ -618,3 +618,28 @@ async def test_messages_failure_releases_the_reservation(
     await claude_plugin.async_log_failure_event(kwargs, None, None, None)
     assert ledger.counter("dev").reserved_usd == 0
     assert ledger.counter("dev/model/claude-sonnet-5-5").reserved_usd == 0
+
+
+async def test_messages_reservation_respects_the_output_cap(tmp_path: Path, ledger: Ledger) -> None:
+    (tmp_path / "pricing.yaml").write_text(CLAUDE_PRICING)
+    (tmp_path / "policies.yaml").write_text(
+        CLAUDE_POLICIES.replace(
+            "budget: { monthly_usd: 5 }",
+            "budget: { monthly_usd: 5, reserve_output_tokens_max: 8000 }",
+        )
+    )
+    p = FinOpsPlugin(
+        price_book=PriceBook.from_yaml(tmp_path / "pricing.yaml"),
+        policies=PolicySet.from_yaml(tmp_path / "policies.yaml"),
+        ledger=ledger,
+    )
+    k = key(team="dev", alias="dev-laptop")
+    # Claude Code asks for 128,000 output tokens: 1.28 USD on this row, more than the 1 USD
+    # model budget. With the cap the reservation assumes 8,000: 0.08 USD plus the prompt.
+    data = await p.async_pre_call_hook(
+        k, None, messages_request(max_tokens=128_000), "anthropic_messages"
+    )
+    assert data is not None and data["max_tokens"] == 128_000
+    reserved = ledger.counter("dev").reserved_usd
+    assert Decimal("0.08") < reserved < Decimal("0.09")
+    assert ledger.counter("dev/model/claude-sonnet-5-5").reserved_usd == reserved

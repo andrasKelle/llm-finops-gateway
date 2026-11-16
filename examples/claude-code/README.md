@@ -93,14 +93,17 @@ billed at the cache-read price; the ledger shows that split per call.
 
 ## Good to know
 
-- **The reservation is sized by `max_tokens`, and Claude Code asks for 128,000.** Before the
-  call the plugin reserves the prompt at the input price plus the request's `max_tokens` at
-  the output price, and replaces it with the real cost when the call ends. Measured per call
-  in flight: about 0.07 USD on Haiku, 1.30 on Sonnet, 2.61 on Opus and 5.22 on Fable. A budget
-  needs that much headroom to admit a call, times the number of calls running in parallel
-  (subagents). Two ways to size it down: give the budget room, or set
-  `CLAUDE_CODE_MAX_OUTPUT_TOKENS` on the developer's side (with 8000, the Opus reservation
-  was 0.21 USD).
+- **The reservation is capped in `policies.yaml`, because Claude Code asks for 128,000
+  output tokens.** Before the call the plugin reserves the prompt at the input price plus
+  the request's `max_tokens` at the output price, and replaces it with the real cost when the
+  call ends. Uncapped, one call in flight reserved about 0.07 USD on Haiku, 1.30 on Sonnet,
+  2.61 on Opus and 5.22 on Fable in the live test, times the number of parallel calls
+  (subagents). The `dev` team's budget sets `reserve_output_tokens_max: 16000`, so a
+  reservation assumes at most 16,000 output tokens: measured 0.01 USD on Haiku, 0.18 on
+  Sonnet, 0.37 on Opus and 0.74 on Fable. A call that writes
+  more than the cap settles above its reservation; pick a cap above a normal call's output
+  (ADR-0028). `CLAUDE_CODE_MAX_OUTPUT_TOKENS` on the developer's side lowers what Claude Code
+  asks for, which has the same effect on the reservation.
 - **Token counting is free and unattributed.** `/v1/messages/count_tokens` passes through
   the proxy without the plugin: no price, no ledger row, no `X-Project` needed.
 - **Every model id needs a row.** Claude Code picks its model from its own settings; an id

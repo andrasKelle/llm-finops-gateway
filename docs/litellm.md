@@ -12,11 +12,8 @@ will become the plugin's user guide.
 ## Install
 
 ```bash
-# not on PyPI yet: install from GitHub (append @v0.4.1 to pin a release) or from a checkout
-pip install "llm-finops-gateway[litellm] @ git+https://github.com/andrasKelle/llm-finops-gateway"
+pip install "llm-finops-gateway[litellm]"      # pins LiteLLM to the tested minor version
 ```
-
-The extra pins LiteLLM to the tested minor version.
 
 In the proxy config, register the plugin instance (an instance, not the class):
 
@@ -154,7 +151,7 @@ general_settings:
 ```
 
 ```bash
-# the report service (the gateway, pip install ".[litellm-ui]" in a checkout)
+# the report service (the gateway, pip install "llm-finops-gateway[litellm-ui]")
 LFG_LITELLM_PLUGIN_NAME=finops
 LFG_LITELLM_SALT_KEY=<the proxy's LITELLM_SALT_KEY>
 ```

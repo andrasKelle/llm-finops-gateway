@@ -7,8 +7,9 @@ is called out here.
 
 ## [Unreleased]
 
-### Added
-- Nothing yet.
+### Changed
+- The release image is built for `linux/amd64` and `linux/arm64`; the `v0.4.0` and `latest`
+  images were rebuilt that way. Before, a pull on Apple Silicon needed `--platform linux/amd64`.
 
 ## [0.4.0] - 2026-11-16
 

@@ -7,8 +7,8 @@ is called out here.
 
 ## [Unreleased]
 
-### Added
-- Nothing yet.
+### Changed
+- The install instructions use the PyPI package (`pip install "llm-finops-gateway[litellm]"`).
 
 ## [0.4.1] - 2026-11-16
 

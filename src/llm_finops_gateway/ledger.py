@@ -7,6 +7,7 @@ pass; the ledger row and the counter settlement are written in one transaction.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -29,7 +30,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 from sqlalchemy.pool import StaticPool
 
+from . import migrate
 from .pricing import money
+
+log = logging.getLogger("llm_finops_gateway.ledger")
 
 ZERO = Decimal(0)
 
@@ -148,7 +152,17 @@ def month_key(when: datetime | None = None) -> str:
 class Ledger:
     def __init__(self, url: str = "sqlite:///./gateway.db") -> None:
         self._engine: Engine = _make_engine(url)
-        Base.metadata.create_all(self._engine)
+        # An empty database gets the schema; an existing one is never altered here (ADR-0026).
+        if migrate.is_empty(self._engine):
+            migrate.upgrade(self._engine)
+        self.schema_revision = migrate.current(self._engine)
+        if self.schema_revision != migrate.head():
+            log.warning(
+                "ledger schema is at revision %s, this version expects %s; run "
+                "`llm-finops-gateway ledger migrate` with a role that may alter tables",
+                self.schema_revision or "unversioned",
+                migrate.head(),
+            )
 
     # ---- writes ------------------------------------------------------------------------
 

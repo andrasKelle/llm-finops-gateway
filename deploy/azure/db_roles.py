@@ -4,10 +4,10 @@
     python deploy/azure/db_roles.py --vault <key vault name> [--resource-group <rg>] [--app lfg-gateway]
 
 Reads the admin password from the vault (`postgres-password`) and the admin URL
-(`database-url`), creates the tables if they do not exist yet, then:
+(`database-url`), creates the schema or upgrades it to the current revision (ADR-0026), then:
 
-* `lfg_app`: CONNECT, USAGE on schema public, SELECT/INSERT/UPDATE on the two ledger tables
-  and USAGE on their sequences; the gateway runs with this role.
+* `lfg_app`: CONNECT, USAGE on schema public, SELECT/INSERT/UPDATE on the two ledger tables,
+  SELECT on `alembic_version` and USAGE on their sequences; the gateway runs with this role.
 * `lfg_reporting`: CONNECT, USAGE, SELECT on every table in public, also for tables created
   later; Power BI and other readers use this role.
 
@@ -101,11 +101,15 @@ def main() -> None:
         connect_timeout=20,
         autocommit=True,
     ) as conn:
-        # Tables are created by the admin, once; the app role never needs CREATE.
-        from llm_finops_gateway.ledger import Ledger  # noqa: PLC0415 - optional import path
+        # The admin creates or upgrades the schema (ADR-0026); the app role never needs DDL.
+        from sqlalchemy import create_engine  # noqa: PLC0415 - optional import path
 
-        Ledger(
-            f"postgresql+psycopg://{admin_user}:{quote(admin_pw, safe='')}@{host}:{port}/{dbname}?sslmode=require"
+        from llm_finops_gateway import migrate  # noqa: PLC0415
+
+        migrate.upgrade(
+            create_engine(
+                f"postgresql+psycopg://{admin_user}:{quote(admin_pw, safe='')}@{host}:{port}/{dbname}?sslmode=require"
+            )
         )
         for role, pw in (("lfg_app", app_pw), ("lfg_reporting", rep_pw)):
             exists = conn.execute("select 1 from pg_roles where rolname = %s", (role,)).fetchone()
@@ -125,6 +129,7 @@ def main() -> None:
             conn.execute(
                 sql.SQL("GRANT SELECT, INSERT, UPDATE ON {} TO lfg_app").format(sql.Identifier(t))
             )
+        conn.execute("GRANT SELECT ON alembic_version TO lfg_app")
         conn.execute("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO lfg_app")
         conn.execute("GRANT SELECT ON ALL TABLES IN SCHEMA public TO lfg_reporting")
         conn.execute(

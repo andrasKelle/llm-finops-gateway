@@ -12,8 +12,17 @@ is called out here.
   `budget`, reserved after the team's and the project's and settled with the ledger row. The
   state travels as `x_finops.policy.model_budget`, the `X-FinOps-Model-Budget-*` headers and
   `model_budgets` in `/v1/finops/budgets`; the LiteLLM plugin inherits it. The `team` column of
-  `budget_counters` is widened to 255 characters for the new scope keys (existing PostgreSQL
-  databases: see `docs/database.md`).
+  `budget_counters` is widened to 255 characters for the new scope keys (revision `0002`).
+- Schema migrations (ADR-0026): the ledger schema is versioned with Alembic revisions shipped in
+  the package. An empty database is set up at start as before; an existing one is upgraded with
+  the new `llm-finops-gateway ledger migrate`, run with a role that may alter tables. `/healthz`
+  reports `schema` and `schema_head`, and the gateway warns at start-up when they differ.
+  `docs/database.md` has a local PostgreSQL walk-through.
+
+### Changed
+- **Upgrade step**: after installing this version run `llm-finops-gateway ledger migrate` once
+  against an existing database (SQLite or PostgreSQL). It records a 0.3 database as the baseline
+  and applies revision `0002`; the data stays. `alembic` is a new core dependency.
 
 ## [0.3.1] - 2026-11-12
 

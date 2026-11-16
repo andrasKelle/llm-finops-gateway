@@ -27,6 +27,8 @@ src/llm_finops_gateway/
   pricing_sync.py  `pricing sync`: Azure Retail Prices meters -> price book diff / rewrite (ADR-0013)
   policy.py        PolicySet / PolicyEngine: allow-list -> rate limit -> atomic budget reservation
   ledger.py        SQLAlchemy ledger (cost_records, budget_counters), reserve/settle/release
+  migrate.py       Alembic revisions in migrations/versions (rev_NNNN_*.py): head(), current(), upgrade();
+                   empty database -> head at start, existing -> `ledger migrate` only (ADR-0026)
   auth.py          KeyRing (SHA-256 hashes from config/keys.yaml), generate_key(), hash_key()
   attribution.py   Attribution(team, project, use_case, key_id); api_key vs headers mode
   enforcement.py   rejection() and the X-FinOps-* header builders shared by main.py and the plugin
@@ -38,7 +40,7 @@ src/llm_finops_gateway/
                    azure_identity.py (Entra ID tokens, [azure] extra, ADR-0014)
   metrics.py       Prometheus; telemetry.py optional OTel ([otel] extra, finops.* span attrs)
   models.py        request/response models (OpenAI shape + x_finops block)
-  cli.py           llm-finops-gateway serve | keys new|hash|check | pricing sync | alerts test | ledger reconcile|export
+  cli.py           llm-finops-gateway serve | keys new|hash|check | pricing sync | alerts test | ledger reconcile|export|migrate
   reconcile.py     ledger vs Azure Cost Management per model and day (ADR-0018)
   report.py        /finops HTML page, summary CSV, report access scope (team key vs role finops, ADR-0016)
   alerts.py        Alerter: webhook POST per budget/upstream event, cooldown, background delivery (ADR-0017)
@@ -51,9 +53,9 @@ deploy/azure/      main.bicep + openai-role.bicep + keys.sh + db_roles.py + READ
                    litellm.bicep + litellm-deploy.sh + push-config.sh + litellm.config.yaml: the LiteLLM direction next to it
 docs/database.md   ledger engines, schema, PostgreSQL roles (lfgadmin/lfg_app/lfg_reporting), operations
 docs/              architecture.md, deployment.md, azure-setup.md, testing-plan.md, comparison.md,
-                   litellm.md, adr/0001..0025
-tests/             one test module per source module, 243 tests (+3 PostgreSQL tests when LFG_TEST_DATABASE_URL is set;
-                   the 15 LiteLLM plugin tests skip without the [litellm] extra), FakeProvider in conftest.py
+                   litellm.md, adr/0001..0026
+tests/             one test module per source module, 249 tests (+4 PostgreSQL tests when LFG_TEST_DATABASE_URL is set;
+                   the 16 LiteLLM plugin tests skip without the [litellm] extra), FakeProvider in conftest.py
 ```
 
 ## Behaviour that must not regress
@@ -131,9 +133,12 @@ Bias toward caution over speed; for trivial tasks use judgment.
 - `make check` must be green before any commit: ruff (lint + format), mypy `--strict` on
   `src` and `tests`, pytest. Pre-commit is installed by `make install`.
 - Every module has a test module; new behaviour comes with a test in the same change.
-- Every design decision gets an ADR in `docs/adr/` (next number: 0026). ADR-0009 (evaluation
+- Every design decision gets an ADR in `docs/adr/` (next number: 0027). ADR-0009 (evaluation
   replay) is Proposed, not implemented.
 - Decimal for money everywhere; never float.
+- A schema change is a new revision in `migrations/versions` plus the same change in the models
+  in `ledger.py`, in one PR; `tests/test_migrate.py` fails when they differ. The gateway never
+  alters an existing database; `/healthz` carries `schema` and `schema_head` (ADR-0026).
 - Secrets only via env / `SecretStr`. Never commit a raw `lfg_` key, `.env`, `*.db`, `demo/out/`.
 - Commit messages: short, Conventional Commits (`feat:`, `fix:`, `docs:`, `ci:`). No
   `Co-Authored-By` or other AI attribution trailers.

@@ -30,6 +30,7 @@ immutable once accepted; a later ADR supersedes an earlier one rather than editi
 | [0023](0023-focus-export.md) | The ledger is exported in the FOCUS format | Accepted |
 | [0024](0024-litellm-dashboard-plugin.md) | The report page runs inside the LiteLLM dashboard as a plugin | Accepted |
 | [0025](0025-per-model-budgets.md) | Budgets per model, on a team or a registered project | Accepted |
+| [0026](0026-schema-migrations.md) | The ledger schema is versioned with Alembic migrations | Accepted |
 
 ## Template
 

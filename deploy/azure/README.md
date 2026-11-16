@@ -101,6 +101,8 @@ python deploy/azure/db_roles.py --vault <keyVaultName> --resource-group $RG
 # Key Vault, switches database-url to lfg_app and restarts the app. On later deployments pass
 #   -p databaseUrl="$(az keyvault secret show --vault-name <keyVaultName> --name database-url --query value -o tsv)"
 # so the template keeps the app-role URL. Schema and grants: docs/database.md.
+# After a software upgrade with a schema revision: `llm-finops-gateway ledger migrate` with the
+# admin URL before the new image starts (docs/database.md, Operations).
 ```
 
 The role assignment on the Azure OpenAI account can take up to half an hour to reach the

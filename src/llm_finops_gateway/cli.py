@@ -7,6 +7,7 @@ llm-finops-gateway keys check config/keys.yaml
 llm-finops-gateway pricing sync --region swedencentral [--deployment global] [--write]
 llm-finops-gateway alerts test            # one sample event to LFG_ALERT_WEBHOOK_URL
 llm-finops-gateway ledger reconcile --resource <azure resource id> --day 2026-10-30
+llm-finops-gateway ledger migrate         # schema to this version's revision (ADR-0026)
 """
 
 from __future__ import annotations
@@ -182,6 +183,21 @@ def _ledger_export(args: argparse.Namespace) -> None:
         sys.stdout.write(text)
 
 
+def _ledger_migrate(args: argparse.Namespace) -> None:
+    from sqlalchemy import create_engine
+
+    from . import migrate
+    from .config import Settings
+
+    engine = create_engine(Settings().database_url)
+    start = "empty" if migrate.is_empty(engine) else "unversioned"
+    before, after = migrate.upgrade(engine)
+    if before == after:
+        print(f"ledger schema already at {after}")
+    else:
+        print(f"ledger schema: {before or start} -> {after}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="llm-finops-gateway")
     sub = parser.add_subparsers(dest="command")
@@ -255,6 +271,12 @@ def build_parser() -> argparse.ArgumentParser:
     ex.add_argument("--billing-account", help="BillingAccountId and BillingAccountName value")
     ex.add_argument("--out", help="file to write; default: stdout")
     ex.set_defaults(func=_ledger_export)
+    mg = lsub.add_parser(
+        "migrate",
+        help="bring the ledger schema to this version's revision (ADR-0026); "
+        "LFG_DATABASE_URL must name a role that may alter tables",
+    )
+    mg.set_defaults(func=_ledger_migrate)
 
     alerts = sub.add_parser("alerts", help="webhook alerts (ADR-0017)")
     asub = alerts.add_subparsers(dest="alerts_command", required=True)

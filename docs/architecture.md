@@ -57,6 +57,7 @@ book at Azure's list prices offline (ADR-0013).
 | `metrics.py`                | Prometheus registry per app instance, `/metrics`                        |
 | `telemetry.py`              | Optional OpenTelemetry provider, `finops.*` span attributes             |
 | `ledger.py`                 | `CostRecord` and `BudgetCounter` tables; record/settle, reserve, release, summary |
+| `migrate.py`                | Alembic revisions in `migrations/versions`: schema for an empty database, `ledger migrate` for an existing one (ADR-0026) |
 | `providers/base.py`         | `Provider` protocol (`chat`, `stream`), `CompletionResult`, `StreamChunk`, `ProviderError`, OpenAI usage/SSE mapping |
 | `providers/ollama.py`       | Adapter for Ollama `/api/chat`                                          |
 | `providers/azure_openai.py` | Adapter for Azure OpenAI data-plane REST with deployment mapping; API key or Entra ID token (`providers/azure_identity.py`, ADR-0014) |

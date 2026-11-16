@@ -20,7 +20,7 @@ from typing import Annotated, Any
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 
-from . import __version__
+from . import __version__, migrate
 from .alerts import Alerter
 from .attribution import Attribution, resolve_attribution
 from .auth import KeyRing
@@ -946,6 +946,8 @@ def create_app(
             "default_provider": state.provider.name,
             "price_book": state.price_book.version,
             "policies": state.policy_engine.version,
+            "schema": state.ledger.schema_revision or "unversioned",
+            "schema_head": migrate.head(),
         }
 
     return app

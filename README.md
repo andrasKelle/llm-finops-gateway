@@ -445,6 +445,11 @@ parse keeps the previous version running and logs the error (ADR-0022).
 
 ![The /finops report page](https://raw.githubusercontent.com/andrasKelle/llm-finops-gateway/main/docs/images/finops-report.png)
 
+The budgets table has one row per team, registered project and configured model budget,
+with separate project and model columns. Each row shows its own budget state; an unbudgeted
+scope says "no budget". The policy table includes the output-token reservation cap next to
+the reservation fallback. These views display existing policy data without changing enforcement.
+
 Reports follow one access rule (ADR-0016): with `LFG_AUTH_MODE=api_key` a team key reads its
 own team, a key with `role: finops` (`keys new --role finops`) reads every team, and the HTML
 page asks for the key once and keeps it in a session cookie. The page sorts on any column,

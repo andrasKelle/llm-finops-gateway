@@ -7,6 +7,10 @@ is called out here.
 
 ## [Unreleased]
 
+### Fixed
+- The report page shows project and model budgets alongside team budgets, and the policy table
+  includes the output-token reservation cap.
+
 ### Changed
 - The install instructions use the PyPI package (`pip install "llm-finops-gateway[litellm]"`).
 

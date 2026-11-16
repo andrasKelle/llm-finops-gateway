@@ -38,7 +38,12 @@ def _seed(ledger: Ledger) -> None:
 
 
 def _app(
-    mode: str, pricing_path: Path, price_book: PriceBook, ledger: Ledger, tmp_path: Path
+    mode: str,
+    pricing_path: Path,
+    price_book: PriceBook,
+    ledger: Ledger,
+    tmp_path: Path,
+    policies: PolicySet | None = None,
 ) -> TestClient:
     keys = tmp_path / "keys.yaml"
     keys.write_text(
@@ -57,7 +62,7 @@ def _app(
     app = create_app(
         settings,
         price_book=price_book,
-        policies=PolicySet.empty(),
+        policies=policies or PolicySet.empty(),
         keyring=KeyRing.from_yaml(keys),
         ledger=ledger,
         provider=FakeProvider(),
@@ -180,5 +185,50 @@ def test_budget_bar_and_percentage_stay_on_one_line() -> None:
         team="t", allowed_models=["gpt-4.1-mini", "claude-haiku-5-5"], budget=budget
     )
     # a long model list next to it used to push the "%" onto a second line
-    assert '<td class="used" data-v="52.6">' in _budget_cells(row)
+    assert '<td class="used" data-v="52.6">' in _budget_cells(row.budget)
     assert "td.used { white-space: nowrap; }" in _STYLE
+
+
+@pytest.mark.parametrize("scope", ["all", "platform", "filtered"])
+def test_report_includes_nested_budget_scopes_and_reservation_cap(
+    scope: str, pricing_path: Path, price_book: PriceBook, ledger: Ledger, tmp_path: Path
+) -> None:
+    import re
+
+    policies_path = tmp_path / "report-policies.yaml"
+    policies_path.write_text(
+        "defaults:\n  allowed_models: ['*']\nteams:\n"
+        "  platform:\n"
+        "    budget: {monthly_usd: 5, reserve_output_tokens: 100, "
+        "reserve_output_tokens_max: 8000}\n"
+        "    model_budgets:\n      'team<model>': {monthly_usd: 2, enforcement: warn}\n"
+        "    projects:\n      'chat<project>':\n"
+        "        budget: {monthly_usd: 3}\n"
+        "        model_budgets:\n          'project<model>': {monthly_usd: 1}\n"
+        "      unbudgeted: {}\n"
+        "  research:\n    budget: {monthly_usd: 9}\n"
+    )
+    with _app(
+        "api_key", pricing_path, price_book, ledger, tmp_path, PolicySet.from_yaml(policies_path)
+    ) as client:
+        auth = {"Authorization": f"Bearer {RAW_PLATFORM if scope == 'platform' else RAW_FINOPS}"}
+        url = "/finops?team=platform" if scope == "filtered" else "/finops"
+        text = client.get(url, headers=auth).text
+        table = text.split('id="budgets"', 1)[1].split("</table>", 1)[0]
+        rows = re.findall(r"<tr data-team=.*?</tr>", table)
+        assert len(rows) == (6 if scope == "all" else 5)
+        assert "team&lt;model&gt;" in table and "project&lt;model&gt;" in table
+        assert "chat&lt;project&gt;" in table and "<model>" not in table
+        assert 'data-amt="5"' in table and 'data-amt="3"' in table
+        assert 'data-amt="2"' in table and 'data-amt="1"' in table
+        assert "unbudgeted" in table and "no budget" in table
+        assert "never blocked" in table
+        assert ("research" in table) == (scope == "all")
+        policy = text.split('id="policy-table"', 1)[1].split("</table>", 1)[0]
+        assert "reserve tokens max" in policy and ">8000</td>" in policy
+        assert ">100</td>" in policy and ">-</td>" in policy
+        csv = client.get("/v1/finops/summary.csv", headers=auth)
+        assert (
+            csv.text.splitlines()[0]
+            == "team,project,model,calls,input_tokens,output_tokens,cost_usd"
+        )

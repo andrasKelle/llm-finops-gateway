@@ -60,7 +60,7 @@ docs/images/       README images; diagrams.py draws architecture.svg and archite
                    (`python docs/images/diagrams.py`, needs the [demo] extra)
 docs/              architecture.md, deployment.md, azure-setup.md, testing-plan.md, comparison.md,
                    litellm.md, adr/0001..0028
-tests/             one test module per source module, 268 tests (+4 PostgreSQL tests when LFG_TEST_DATABASE_URL is set;
+tests/             one test module per source module, 272 tests (+4 PostgreSQL tests when LFG_TEST_DATABASE_URL is set;
                    the 21 LiteLLM plugin tests skip without the [litellm] extra), FakeProvider in conftest.py
 ```
 

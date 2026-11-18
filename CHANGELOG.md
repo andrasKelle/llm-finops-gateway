@@ -10,9 +10,13 @@ is called out here.
 ### Fixed
 - The report page shows project and model budgets alongside team budgets, and the policy table
   includes the output-token reservation cap.
+- The budgets table keeps its columns aligned when sorting: a row without a budget has one cell
+  per column, and a model budget's row names its model once.
 
 ### Changed
 - The install instructions use the PyPI package (`pip install "llm-finops-gateway[litellm]"`).
+- README images: the report page and the report inside the LiteLLM dashboard retaken with the
+  budgets table per team, project and model.
 
 ## [0.4.1] - 2026-11-16
 

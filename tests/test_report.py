@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from decimal import Decimal
 from pathlib import Path
@@ -193,8 +194,6 @@ def test_budget_bar_and_percentage_stay_on_one_line() -> None:
 def test_report_includes_nested_budget_scopes_and_reservation_cap(
     scope: str, pricing_path: Path, price_book: PriceBook, ledger: Ledger, tmp_path: Path
 ) -> None:
-    import re
-
     policies_path = tmp_path / "report-policies.yaml"
     policies_path.write_text(
         "defaults:\n  allowed_models: ['*']\nteams:\n"
@@ -232,3 +231,35 @@ def test_report_includes_nested_budget_scopes_and_reservation_cap(
             csv.text.splitlines()[0]
             == "team,project,model,calls,input_tokens,output_tokens,cost_usd"
         )
+
+
+def test_budget_rows_keep_their_columns_and_name_a_model_once() -> None:
+    from llm_finops_gateway.models import BudgetEnvelope, ProjectBudgetRow, TeamBudgetRow
+    from llm_finops_gateway.report import _budget_rows
+
+    budget = BudgetEnvelope(
+        limit_usd="2",
+        spent_usd="1",
+        reserved_usd="0",
+        used_pct="50.0",
+        remaining_usd="1",
+        level="ok",
+        enforcement="block",
+        warn_at_pct="80",
+        block_at_pct="100",
+    )
+    team = TeamBudgetRow(
+        team="t",
+        allowed_models=["m-1", "m-2"],
+        budget=None,
+        model_budgets={"m-1": budget},
+        projects=[ProjectBudgetRow(project="p", allowed_models=["m-2"], budget=None)],
+    )
+    rows = re.findall(r"<tr.*?</tr>", _budget_rows([team]))
+    assert len(rows) == 3
+    # a row without a budget used to merge four cells, which shifted its columns when sorting
+    assert [len(re.findall(r"<td", row)) for row in rows] == [9, 9, 9]
+    assert "colspan" not in "".join(rows) and rows[0].count("no budget") == 1
+    # a model budget's row names its model in the model column only
+    assert rows[1].count("m-1") == 1 and rows[1].endswith("<td>-</td></tr>")
+    assert rows[0].endswith("<td>m-1, m-2</td></tr>") and rows[2].endswith("<td>m-2</td></tr>")

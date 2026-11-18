@@ -342,7 +342,8 @@ def _enforcement_note(warn_pct: str, block_pct: str, enforcement: str) -> str:
 
 def _budget_cells(b: BudgetEnvelope | None) -> str:
     if b is None:
-        return "<td colspan=4>no budget</td>"
+        # one cell per column, so sorting compares the same column in every row
+        return '<td class="num">-</td><td class="num">-</td><td>-</td><td>no budget</td>'
     pct = min(float(b.used_pct), 100.0)
     color = {"ok": "var(--ok)", "warn": "var(--warn)", "block": "var(--block)"}[b.level]
     bar = f'<span class="bar"><i style="width:{pct:.0f}%;background:{color}"></i></span>'
@@ -376,13 +377,13 @@ def _budget_rows(rows: list[TeamBudgetRow]) -> str:
             render(row.team, "-", "-", row.budget, row.allowed_models, row.requests_per_minute)
         )
         for model, budget in (row.model_budgets or {}).items():
-            body.append(render(row.team, "-", model, budget, [model]))
+            body.append(render(row.team, "-", model, budget, ["-"]))
         for project in row.projects or []:
             body.append(
                 render(row.team, project.project, "-", project.budget, project.allowed_models)
             )
             for model, budget in (project.model_budgets or {}).items():
-                body.append(render(row.team, project.project, model, budget, [model]))
+                body.append(render(row.team, project.project, model, budget, ["-"]))
     return "".join(body) or '<tr><td colspan="9">no teams yet</td></tr>'
 
 

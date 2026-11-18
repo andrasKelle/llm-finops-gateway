@@ -29,7 +29,7 @@ from fastapi import Header, HTTPException, Request
 
 from .auth import ApiKey, KeyRing
 from .litellm_ui import SESSION_COOKIE, verify_session
-from .models import CostSummaryRow, TeamBudgetRow
+from .models import BudgetEnvelope, CostSummaryRow, TeamBudgetRow
 from .pricing import money
 
 COOKIE = "lfg_report_key"
@@ -141,6 +141,7 @@ class PolicyRow:
     enforcement: str | None
     reserve_output_tokens: int | None
     requests_per_minute: int | None
+    reserve_output_tokens_max: int | None = None
 
 
 @dataclass(frozen=True)
@@ -339,8 +340,7 @@ def _enforcement_note(warn_pct: str, block_pct: str, enforcement: str) -> str:
     return f"warn from {_e(warn_pct)} %, blocked at {_e(block_pct)} %"
 
 
-def _budget_cells(row: TeamBudgetRow) -> str:
-    b = row.budget
+def _budget_cells(b: BudgetEnvelope | None) -> str:
     if b is None:
         return "<td colspan=4>no budget</td>"
     pct = min(float(b.used_pct), 100.0)
@@ -354,6 +354,38 @@ def _budget_cells(row: TeamBudgetRow) -> str:
     )
 
 
+def _budget_rows(rows: list[TeamBudgetRow]) -> str:
+    def render(
+        team: str,
+        project: str,
+        model: str,
+        budget: BudgetEnvelope | None,
+        allowed_models: list[str],
+        rate: int | None = None,
+    ) -> str:
+        return (
+            f'<tr data-team="{_e(team)}"><td>{_e(team)}</td>'
+            f"<td>{_e(project)}</td><td>{_e(model)}</td>{_budget_cells(budget)}"
+            f'<td class="num">{rate if rate is not None else "-"}</td>'
+            f"<td>{_e(', '.join(allowed_models))}</td></tr>"
+        )
+
+    body = []
+    for row in rows:
+        body.append(
+            render(row.team, "-", "-", row.budget, row.allowed_models, row.requests_per_minute)
+        )
+        for model, budget in (row.model_budgets or {}).items():
+            body.append(render(row.team, "-", model, budget, [model]))
+        for project in row.projects or []:
+            body.append(
+                render(row.team, project.project, "-", project.budget, project.allowed_models)
+            )
+            for model, budget in (project.model_budgets or {}).items():
+                body.append(render(row.team, project.project, model, budget, [model]))
+    return "".join(body) or '<tr><td colspan="9">no teams yet</td></tr>'
+
+
 def _policy_table(rows: list[PolicyRow]) -> str:
     body = "".join(
         f"<tr><td>{_e(r.team)}</td><td>{_e(', '.join(r.allowed_models))}</td>"
@@ -362,6 +394,7 @@ def _policy_table(rows: list[PolicyRow]) -> str:
         f'<td class="num">{_e(r.block_pct) if r.block_pct else "-"}</td>'
         f"<td>{'warn only (never blocked)' if r.enforcement == 'warn' else _e(r.enforcement) if r.enforcement else '-'}</td>"
         f'<td class="num">{r.reserve_output_tokens if r.reserve_output_tokens else "-"}</td>'
+        f'<td class="num">{r.reserve_output_tokens_max if r.reserve_output_tokens_max is not None else "-"}</td>'
         f'<td class="num">{r.requests_per_minute if r.requests_per_minute else "-"}</td></tr>'
         for r in rows
     )
@@ -369,7 +402,7 @@ def _policy_table(rows: list[PolicyRow]) -> str:
         '<table class="sortable" id="policy-table"><thead><tr><th data-key>team</th><th data-key>allowed models</th>'
         '<th class="num" data-key>monthly budget <span class="cur"></span></th><th class="num" data-key>warn %</th>'
         '<th class="num" data-key>block %</th><th data-key>enforcement</th><th class="num" data-key>reserve tokens</th>'
-        '<th class="num" data-key>req/min</th></tr></thead>'
+        '<th class="num" data-key>reserve tokens max</th><th class="num" data-key>req/min</th></tr></thead>'
         f"<tbody>{body}</tbody></table>"
     )
 
@@ -393,15 +426,7 @@ def render_report(ctx: ReportContext) -> str:
     scope_text = (f"team <b>{_e(ctx.scope.team)}</b>" if ctx.scope.team else "all teams") + (
         f" (key {_e(ctx.scope.key_id)})" if ctx.scope.key_id else ""
     )
-    budget_rows = (
-        "".join(
-            f'<tr data-team="{_e(r.team)}"><td>{_e(r.team)}</td>{_budget_cells(r)}'
-            f'<td class="num">{_e(r.requests_per_minute) if r.requests_per_minute else "-"}</td>'
-            f"<td>{_e(', '.join(r.allowed_models))}</td></tr>"
-            for r in ctx.budgets
-        )
-        or '<tr><td colspan="7">no teams yet</td></tr>'
-    )
+    budget_rows = _budget_rows(ctx.budgets)
     cost_rows = (
         "".join(
             f'<tr data-team="{_e(r.team)}"><td>{_e(r.team)}</td><td>{_e(r.project)}</td><td>{_e(r.model)}</td>'
@@ -451,7 +476,7 @@ def render_report(ctx: ReportContext) -> str:
 <script type="application/json" id="rates">{json.dumps(rates)}</script>
 
 <h2>Budgets <input class="filter" data-table="budgets" placeholder="filter rows"></h2>
-<table class="sortable" id="budgets"><thead><tr><th data-key>team</th><th class="num" data-key>spent <span class="cur"></span></th><th class="num" data-key>limit <span class="cur"></span></th><th data-key>used</th>
+<table class="sortable" id="budgets"><thead><tr><th data-key>team</th><th data-key>project</th><th data-key>model</th><th class="num" data-key>spent <span class="cur"></span></th><th class="num" data-key>limit <span class="cur"></span></th><th data-key>used</th>
 <th data-key>status</th><th class="num" data-key>req/min</th><th data-key>allowed models</th></tr></thead>
 <tbody>{budget_rows}</tbody></table>
 

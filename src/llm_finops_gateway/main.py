@@ -863,6 +863,7 @@ def create_app(
                 block_pct=money(Decimal(str(b.block_at)) * 100) if b else None,
                 enforcement=b.enforcement if b else None,
                 reserve_output_tokens=b.reserve_output_tokens if b else None,
+                reserve_output_tokens_max=b.reserve_output_tokens_max if b else None,
                 requests_per_minute=eff.rate_limit.requests_per_minute if eff.rate_limit else None,
             )
 

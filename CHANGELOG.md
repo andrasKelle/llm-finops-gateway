@@ -7,9 +7,14 @@ is called out here.
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-11-18
+
+The report page shows every budget scope. No schema revision: a database migrated for 0.4.0
+needs nothing.
+
 ### Fixed
 - The report page shows project and model budgets alongside team budgets, and the policy table
-  includes the output-token reservation cap.
+  includes the output-token reservation cap (#78).
 - The budgets table keeps its columns aligned when sorting: a row without a budget has one cell
   per column, and a model budget's row names its model once.
 
@@ -290,7 +295,8 @@ First public release.
   results, comparison with existing gateways, ADRs 0001 to 0009, CONTRIBUTING, GOVERNANCE,
   CODE_OF_CONDUCT, SECURITY, CLA, MAINTAINERS.
 
-[Unreleased]: https://github.com/andrasKelle/llm-finops-gateway/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/andrasKelle/llm-finops-gateway/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/andrasKelle/llm-finops-gateway/releases/tag/v0.4.2
 [0.4.1]: https://github.com/andrasKelle/llm-finops-gateway/releases/tag/v0.4.1
 [0.4.0]: https://github.com/andrasKelle/llm-finops-gateway/releases/tag/v0.4.0
 [0.3.1]: https://github.com/andrasKelle/llm-finops-gateway/releases/tag/v0.3.1

@@ -200,7 +200,8 @@ nothing is posted without the URL. LiteLLM's own alerting keeps working next to 
 
 ## What it does not do (yet)
 
-- Only chat completions are priced; embeddings and other call types pass through untouched.
+- Chat completions, `/v1/messages` and `/v1/responses` are priced; embeddings and other call
+  types pass through untouched.
 - Per-user attribution: the plugin keys calls by team; a user id from LiteLLM is not
   recorded on the ledger row.
 

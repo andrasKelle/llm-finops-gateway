@@ -66,6 +66,8 @@ class CostRecord(Base):
     price_book_version: Mapped[str] = mapped_column(String(32))
     # the caller's X-Run-Id: the calls of one agent run or pipeline job (ADR-0030)
     run_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    # the name the client called when `model` is the target of a price book alias (ADR-0033)
+    model_alias: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class BudgetCounter(Base):
@@ -98,6 +100,7 @@ class CostEntry:
     cache_write_input_tokens: int = 0
     cache_write_1h_input_tokens: int = 0
     run_id: str | None = None
+    model_alias: str | None = None
 
 
 @dataclass(frozen=True)
@@ -130,6 +133,7 @@ class LedgerRow:
     cache_write_input_tokens: int = 0
     cache_write_1h_input_tokens: int = 0
     run_id: str | None = None
+    model_alias: str | None = None
 
 
 @dataclass(frozen=True)
@@ -218,6 +222,7 @@ class Ledger:
                     cost_usd=entry.cost_usd,
                     price_book_version=entry.price_book_version,
                     run_id=entry.run_id,
+                    model_alias=entry.model_alias,
                 )
             )
             scopes = [(entry.team, release_reserved)]
@@ -355,6 +360,7 @@ class Ledger:
                     cache_write_input_tokens=r.cache_write_input_tokens,
                     cache_write_1h_input_tokens=r.cache_write_1h_input_tokens,
                     run_id=r.run_id,
+                    model_alias=r.model_alias,
                 )
                 for r in records
             ]

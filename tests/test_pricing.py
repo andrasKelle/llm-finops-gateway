@@ -195,3 +195,39 @@ def test_repo_price_book_has_the_claude_rows() -> None:
         assert price.cached_input_per_million is not None
         assert price.cache_write_per_million == price.input_per_million * Decimal("1.25")
         assert price.cache_write_1h_per_million == price.input_per_million * 2
+
+
+ALIAS_YAML = """\
+version: alias-1
+currency: USD
+models:
+  priced: {input: 2.5, output: 10, cached_input: 1.25, provider: azure_openai, reasoning: true}
+  plan: {alias_of: priced}
+"""
+
+
+def test_alias_is_priced_and_served_as_its_target(tmp_path: Path) -> None:
+    path = tmp_path / "pricing.yaml"
+    path.write_text(ALIAS_YAML)
+    book = PriceBook.from_yaml(path)
+    assert book.has("plan") and book.is_alias("plan") and not book.is_alias("priced")
+    assert book.target("plan") == "priced" and book.target("priced") == "priced"
+    assert book.cost("plan", 1000, 100, 400) == book.cost("priced", 1000, 100, 400)
+    assert book.provider_for("plan") == "azure_openai" and book.is_reasoning("plan")
+    # an alias is a name, not a priced row
+    assert book.models() == ["priced"] and book.aliases() == {"plan": "priced"}
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        "plan: {alias_of: nowhere}",  # the target has no price
+        "plan: {alias_of: again}\n  again: {alias_of: priced}",  # no chains
+        "plan: {alias_of: priced, input: 1, output: 1}",  # an alias has no price of its own
+    ],
+)
+def test_malformed_alias_is_rejected(tmp_path: Path, row: str) -> None:
+    path = tmp_path / "pricing.yaml"
+    path.write_text(ALIAS_YAML.replace("plan: {alias_of: priced}", row))
+    with pytest.raises(PriceBookError, match="alias_of|alias row"):
+        PriceBook.from_yaml(path)

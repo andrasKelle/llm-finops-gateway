@@ -37,6 +37,7 @@ immutable once accepted; a later ADR supersedes an earlier one rather than editi
 | [0030](0030-run-id.md) | An optional run id ties the calls of one run together | Accepted |
 | [0031](0031-use-case-rules.md) | A use case can carry a model list and a budget | Accepted |
 | [0032](0032-summary-by-use-case-and-run.md) | The cost summary splits by use case and by run on request | Accepted |
+| [0033](0033-model-aliases.md) | A price book alias is a name that is priced and governed as its target | Accepted |
 
 ## Template
 

@@ -7,10 +7,13 @@ is called out here.
 
 ## [Unreleased]
 
-Schema revision `0004`: run `llm-finops-gateway ledger migrate` on an existing database before
+Schema revisions `0004` and `0005`: run `llm-finops-gateway ledger migrate` on an existing database before
 starting this version.
 
 ### Added
+- Model aliases: a price book row `{ alias_of: <row> }` is a name clients may call that is
+  priced, allow-listed and budgeted as its target; the ledger row keeps both names
+  (`model`, `model_alias`), and `/v1/models` lists aliases (ADR-0033).
 - Reports by use case and by run: `/v1/finops/summary` and its CSV accept `group_by=use_case`,
   `group_by=run_id` and `run_id=`; the report page's chargeback table is grouped by use case,
   lists the runs with their cost and shows one run on request, and the budgets table has a

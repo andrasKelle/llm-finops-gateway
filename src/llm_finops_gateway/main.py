@@ -354,6 +354,10 @@ def create_app(
         state: Annotated[Any, Depends(_state)],
     ) -> ChatResponse | StreamingResponse:
         book: PriceBook = state.price_book
+        # An alias is called, priced, allow-listed and budgeted as its target (ADR-0033).
+        alias = req.model if book.is_alias(req.model) else None
+        if alias is not None:
+            req = req.model_copy(update={"model": book.target(alias)})
         engine: PolicyEngine = state.policy_engine
         ledger: Ledger = state.ledger
         provider: Provider = state.routes.get(req.model, state.provider)
@@ -435,6 +439,7 @@ def create_app(
                     price_book_version=book.version,
                     key_id=attr.key_id,
                     run_id=attr.run_id,
+                    model_alias=alias,
                 ),
                 release_reserved=decision.reserved_usd,
                 project_reserved=project_reserved,
@@ -984,7 +989,8 @@ def create_app(
         return {
             "object": "list",
             "data": [
-                {"id": m, "object": "model", "owned_by": routes[m].name} for m in book.models()
+                {"id": m, "object": "model", "owned_by": routes[book.target(m)].name}
+                for m in sorted([*book.models(), *book.aliases()])
             ],
         }
 

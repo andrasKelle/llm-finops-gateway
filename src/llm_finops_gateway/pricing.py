@@ -53,8 +53,16 @@ def money(value: Decimal | int | str) -> str:
 class PriceBook:
     """Immutable, versioned price list loaded from YAML."""
 
-    def __init__(self, prices: dict[str, ModelPrice], version: str, currency: str) -> None:
+    def __init__(
+        self,
+        prices: dict[str, ModelPrice],
+        version: str,
+        currency: str,
+        aliases: dict[str, str] | None = None,
+    ) -> None:
         self._prices = dict(prices)
+        # alias -> priced row: a name clients call that is priced as its target (ADR-0033)
+        self._aliases = dict(aliases or {})
         self.version = version
         self.currency = currency
 
@@ -72,7 +80,13 @@ class PriceBook:
         if not re.fullmatch(r"[A-Z]{3}", currency):
             raise PriceBookError(f"{path}: 'currency' must be a 3-letter code like USD or EUR")
         prices: dict[str, ModelPrice] = {}
+        aliases: dict[str, str] = {}
         for name, spec in raw["models"].items():
+            if isinstance(spec, dict) and "alias_of" in spec:
+                if len(spec) != 1:
+                    raise PriceBookError(f"{path}: alias row '{name}' takes only 'alias_of'")
+                aliases[str(name)] = str(spec["alias_of"])
+                continue
             if not isinstance(spec, dict) or "input" not in spec or "output" not in spec:
                 raise PriceBookError(f"{path}: model '{name}' needs 'input' and 'output'")
             cached = spec.get("cached_input")
@@ -87,17 +101,33 @@ class PriceBook:
                 provider=None if provider is None else str(provider),
                 reasoning=bool(spec.get("reasoning", False)),
             )
-        return cls(prices, version=str(raw["version"]), currency=currency)
+        for name, target in aliases.items():
+            if target not in prices:
+                raise PriceBookError(
+                    f"{path}: model '{name}': alias_of must name a priced row, got '{target}'"
+                )
+        return cls(prices, version=str(raw["version"]), currency=currency, aliases=aliases)
 
     def models(self) -> list[str]:
+        """The priced rows; aliases are in :meth:`aliases`."""
         return sorted(self._prices)
 
+    def aliases(self) -> dict[str, str]:
+        return dict(self._aliases)
+
+    def is_alias(self, model: str) -> bool:
+        return model in self._aliases
+
+    def target(self, model: str) -> str:
+        """The priced row behind ``model``: itself, or the row an alias points at."""
+        return self._aliases.get(model, model)
+
     def has(self, model: str) -> bool:
-        return model in self._prices
+        return self.target(model) in self._prices
 
     def price(self, model: str) -> ModelPrice:
         try:
-            return self._prices[model]
+            return self._prices[self.target(model)]
         except KeyError as exc:
             raise UnknownModelError(model) from exc
 
@@ -105,14 +135,14 @@ class PriceBook:
         """True for rows flagged ``reasoning: true`` (gpt-5, o-series): the upstream takes
         ``max_completion_tokens`` instead of ``max_tokens`` and only the default temperature."""
         try:
-            return self._prices[model].reasoning
+            return self._prices[self.target(model)].reasoning
         except KeyError as exc:
             raise UnknownModelError(model) from exc
 
     def provider_for(self, model: str) -> str | None:
         """Provider named by the price book row, or None for the default (ADR-0011)."""
         try:
-            return self._prices[model].provider
+            return self._prices[self.target(model)].provider
         except KeyError as exc:
             raise UnknownModelError(model) from exc
 
@@ -144,7 +174,7 @@ class PriceBook:
         if cache_write_1h_input_tokens > cache_write_input_tokens:
             raise ValueError("cache_write_1h_input_tokens cannot exceed cache_write_input_tokens")
         try:
-            price = self._prices[model]
+            price = self._prices[self.target(model)]
         except KeyError as exc:
             raise UnknownModelError(model) from exc
         cached_price = (

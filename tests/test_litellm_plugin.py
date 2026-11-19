@@ -809,3 +809,30 @@ async def test_use_case_rules_in_litellm_mode(tmp_path: Path, ledger: Ledger) ->
     assert data is not None and ledger.counter(scope).reserved_usd > 0
     await plugin.async_log_failure_event(success_kwargs(data), None, None, None)
     assert ledger.counter(scope).reserved_usd == 0
+
+
+async def test_alias_in_litellm_mode_is_priced_and_listed_as_its_target(
+    tmp_path: Path, ledger: Ledger
+) -> None:
+    (tmp_path / "pricing.yaml").write_text(PRICING + "  sdd-plan: { alias_of: gpt-4o-mini }\n")
+    (tmp_path / "policies.yaml").write_text(
+        'version: "a"\ndefaults:\n  allowed_models: ["gpt-4o-mini"]\n'
+        "teams:\n  dev:\n    model_budgets:\n      gpt-4o-mini: {monthly_usd: 1}\n"
+    )
+    plugin = FinOpsPlugin(
+        price_book=PriceBook.from_yaml(tmp_path / "pricing.yaml"),
+        policies=PolicySet.from_yaml(tmp_path / "policies.yaml"),
+        ledger=ledger,
+    )
+    k = key(team="dev", alias="dev-key")
+    data = await plugin.async_pre_call_hook(k, None, request(model="sdd-plan"), "acompletion")
+    assert data is not None and data["model"] == "sdd-plan"  # LiteLLM routes the alias itself
+    assert ledger.counter("dev/model/gpt-4o-mini").reserved_usd > 0
+    await plugin.async_post_call_response_headers_hook(data, k, response())
+    now = datetime.now(UTC)
+    (row,) = ledger.rows(now - timedelta(hours=1), now + timedelta(hours=1))
+    assert (row.model, row.model_alias, row.cost_usd) == (
+        "gpt-4o-mini",
+        "sdd-plan",
+        Decimal("0.00000195"),
+    )

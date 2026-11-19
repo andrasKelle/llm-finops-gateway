@@ -16,7 +16,7 @@ from llm_finops_gateway.main import create_app
 from llm_finops_gateway.policy import PolicySet
 from llm_finops_gateway.pricing import PriceBook
 from llm_finops_gateway.providers.base import ProviderError
-from tests.conftest import ATTR_HEADERS, FakeProvider
+from tests.conftest import ATTR_HEADERS, PRICING_YAML, FakeProvider
 
 BODY = {"model": "priced", "messages": [{"role": "user", "content": "hi"}]}
 
@@ -28,7 +28,7 @@ def test_healthz(client: TestClient) -> None:
     # the string in __init__.py is bumped by hand; it must match the version in pyproject.toml
     pyproject = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
     assert r.json()["version"] == pyproject["project"]["version"]
-    assert r.json()["schema"] == r.json()["schema_head"] == "0004"
+    assert r.json()["schema"] == r.json()["schema_head"] == "0005"
 
 
 def test_models_lists_price_book(client: TestClient) -> None:
@@ -429,3 +429,48 @@ def test_run_id_is_stored_and_echoed(client: TestClient, ledger: Ledger) -> None
         "/v1/chat/completions", json=BODY, headers={**ATTR_HEADERS, "X-Run-Id": "r" * 129}
     )
     assert too_long.status_code == 400 and "X-Run-Id" in too_long.text
+
+
+def test_alias_is_called_priced_and_budgeted_as_its_target(
+    tmp_path: Path, ledger: Ledger, fake_provider: FakeProvider
+) -> None:
+    pricing = tmp_path / "pricing.yaml"
+    pricing.write_text(PRICING_YAML + "  plan: {alias_of: priced}\n")
+    policies = tmp_path / "policies.yaml"
+    policies.write_text(
+        'version: "a"\ndefaults:\n  allowed_models: ["priced"]\n'
+        "teams:\n  platform:\n    model_budgets:\n      priced: {monthly_usd: 1}\n"
+    )
+    settings = Settings(
+        provider=ProviderKind.OLLAMA,
+        auth_mode="headers",
+        pricing_path=pricing,
+        database_url="sqlite:///:memory:",
+    )
+    app = create_app(
+        settings,
+        price_book=PriceBook.from_yaml(pricing),
+        policies=PolicySet.from_yaml(policies),
+        keyring=KeyRing.empty(),
+        ledger=ledger,
+        provider=fake_provider,
+    )
+    with TestClient(app) as c:
+        r = c.post("/v1/chat/completions", json={**BODY, "model": "plan"}, headers=ATTR_HEADERS)
+        assert r.status_code == 200, r.text
+        # the upstream is called with the target, and the response names it
+        assert fake_provider.calls[0]["model"] == "priced" and r.json()["model"] == "priced"
+        # the allow-list and the model budget of the target apply
+        assert r.headers["X-FinOps-Model-Budget-Limit-USD"] == "1"
+        assert Decimal(r.json()["x_finops"]["cost_usd"]) == Decimal("0.00075")
+        assert ledger.counter("platform/model/priced").spent_usd == Decimal("0.00075")
+
+        c.post("/v1/chat/completions", json=BODY, headers=ATTR_HEADERS)
+        now = datetime.now(UTC)
+        rows = ledger.rows(now - timedelta(hours=1), now + timedelta(hours=1))
+        assert [(row.model, row.model_alias) for row in rows] == [
+            ("priced", "plan"),
+            ("priced", None),
+        ]
+        ids = [m["id"] for m in c.get("/v1/models").json()["data"]]
+        assert ids == ["free", "plan", "priced"]

@@ -47,7 +47,10 @@ message (`budget_exceeded: team 'dev' has used ...`, the bare code in `code`), a
 `/v1/messages/count_tokens` passes through without the plugin.
 
 On `/v1/responses` the estimate reads `input`, `instructions`, `tools` and `max_output_tokens`,
-and a rejection carries its explanation the same way. GitHub Copilot CLI sends no custom
+and a rejection carries its explanation the same way. What the developer sees depends on the
+client: Copilot CLI shows the message of a `400` and replaces a `403` with a generic
+authentication message; VS Code shows `error.message` of a `403` (the bare code on the chat
+completions route) and the whole body of a `400`, after five retries. GitHub Copilot CLI sends no custom
 headers, so give its LiteLLM key the project and the use case in the key metadata; VS Code's
 Custom Endpoint provider can set `X-Project` and `X-Use-Case` per model with `requestHeaders`.
 Other call types (embeddings, images, audio) pass through without the plugin.

@@ -76,6 +76,7 @@ class _Pending:
     model_reserved_usd: Decimal = Decimal(0)
     use_case_scope: str | None = None  # counter key of the use case budget (ADR-0031)
     use_case_reserved_usd: Decimal = Decimal(0)
+    model_alias: str | None = None  # the name the client called, when it was an alias
     created: float = field(default_factory=time.monotonic)
 
 
@@ -309,6 +310,10 @@ class FinOpsPlugin(CustomLogger):
         if not book.has(model):
             self._count(attr.team, model, "unpriced")
             raise HTTPException(status_code=422, detail=str(UnknownModelError(model)))
+        # An alias is priced, allow-listed and budgeted as its target (ADR-0033); LiteLLM
+        # keeps routing the name the client sent.
+        alias = model if book.is_alias(model) else None
+        model = book.target(model)
 
         messages = data.get("messages") or []
         policy = engine.resolve(attr.team)
@@ -346,6 +351,7 @@ class FinOpsPlugin(CustomLogger):
             decision.model_reserved_usd,
             decision.use_case_scope,
             decision.use_case_reserved_usd,
+            alias,
         )
         meta_key = "litellm_metadata" if call_type in AGENT_CALL_TYPES else "metadata"
         data.setdefault(meta_key, {})[META] = {"request_id": request_id, "team": attr.team}
@@ -405,6 +411,7 @@ class FinOpsPlugin(CustomLogger):
                 price_book_version=book.version,
                 key_id=pending.attr.key_id,
                 run_id=pending.attr.run_id,
+                model_alias=pending.model_alias,
             ),
             release_reserved=pending.reserved_usd,
             project_reserved=pending.project_reserved_usd,

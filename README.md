@@ -233,6 +233,10 @@ defaults keep working. Reasoning tokens are part of `completion_tokens`, billed 
 reported in `usage.completion_tokens_details.reasoning_tokens`; a small `max_tokens` can be used
 up entirely by reasoning and return an empty message with `finish_reason: length`.
 
+A row can also be an alias: `sdd-plan: { alias_of: claude-opus-5-5 }` is a name clients may
+call that is priced, allow-listed and budgeted as its target, with both names on the ledger
+row (ADR-0033). Pointing a role at another model is then one reviewed line.
+
 ### The response
 
 Standard OpenAI shape plus an `x_finops` block, and `X-FinOps-*` headers:

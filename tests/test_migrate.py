@@ -48,7 +48,7 @@ def _team_width(engine: Engine) -> int:
 
 
 def test_head_is_the_latest_revision() -> None:
-    assert migrate.head() == "0004"
+    assert migrate.head() == "0005"
 
 
 def test_empty_database_is_created_at_head(tmp_path: Path) -> None:
@@ -68,19 +68,19 @@ def test_migrations_produce_the_schema_of_the_models(tmp_path: Path) -> None:
 def test_unversioned_database_is_stamped_at_the_baseline_and_upgraded(tmp_path: Path) -> None:
     engine = _legacy(_url(tmp_path))
     assert migrate.current(engine) is None and _team_width(engine) == 64
-    assert migrate.upgrade(engine) == (None, "0004")
-    assert migrate.current(engine) == "0004" and _team_width(engine) == 255
+    assert migrate.upgrade(engine) == (None, "0005")
+    assert migrate.current(engine) == "0005" and _team_width(engine) == 255
     with engine.connect() as conn:
         spent = conn.execute(text("SELECT spent_usd FROM budget_counters")).scalar_one()
         written = conn.execute(
             text(
-                "SELECT cache_write_input_tokens, cache_write_1h_input_tokens, run_id "
+                "SELECT cache_write_input_tokens, cache_write_1h_input_tokens, run_id, model_alias "
                 "FROM cost_records"
             )
         ).one()
     assert Decimal(str(spent)) == Decimal("1.5")
-    assert tuple(written) == (0, 0, None)  # rows from before the columns existed
-    assert migrate.upgrade(engine) == ("0004", "0004")  # running it again changes nothing
+    assert tuple(written) == (0, 0, None, None)  # rows from before the columns existed
+    assert migrate.upgrade(engine) == ("0005", "0005")  # running it again changes nothing
 
 
 def test_ledger_refuses_an_older_schema_and_does_not_alter_it(tmp_path: Path) -> None:
@@ -106,11 +106,11 @@ def test_cli_ledger_migrate(
     engine = _legacy(_url(tmp_path))
     monkeypatch.setenv("LFG_DATABASE_URL", _url(tmp_path))
     main(["ledger", "migrate"])
-    assert "unversioned -> 0004" in capsys.readouterr().out
+    assert "unversioned -> 0005" in capsys.readouterr().out
     assert _team_width(engine) == 255
     main(["ledger", "migrate"])
-    assert "already at 0004" in capsys.readouterr().out
+    assert "already at 0005" in capsys.readouterr().out
 
     monkeypatch.setenv("LFG_DATABASE_URL", f"sqlite:///{tmp_path / 'new.db'}")
     main(["ledger", "migrate"])
-    assert "empty -> 0004" in capsys.readouterr().out
+    assert "empty -> 0005" in capsys.readouterr().out

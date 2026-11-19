@@ -47,3 +47,12 @@ def test_attribution_is_immutable() -> None:
     attr = Attribution(team="a", project="b")
     with pytest.raises(AttributeError):
         attr.team = "c"  # type: ignore[misc]
+
+
+def test_run_id_is_optional_and_bounded_in_length_only() -> None:
+    assert attribution_from_headers("platform", "demo", None).run_id is None
+    attr = attribution_from_headers("platform", "demo", None, "spec/42 plan #7")
+    assert attr.run_id == "spec/42 plan #7"  # free text: a branch, a pull request, a job id
+    with pytest.raises(HTTPException) as exc:
+        attribution_from_headers("platform", "demo", None, "r" * 129)
+    assert exc.value.status_code == 400 and "X-Run-Id" in str(exc.value.detail)

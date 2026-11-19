@@ -60,9 +60,9 @@ docs/database.md   ledger engines, schema, PostgreSQL roles (lfgadmin/lfg_app/lf
 docs/images/       README images; diagrams.py draws architecture.svg and architecture-litellm.svg
                    (`python docs/images/diagrams.py`, needs the [demo] extra)
 docs/              architecture.md, deployment.md, azure-setup.md, testing-plan.md, comparison.md,
-                   litellm.md, adr/0001..0029
-tests/             one test module per source module, 276 tests (+4 PostgreSQL tests when LFG_TEST_DATABASE_URL is set;
-                   the 25 LiteLLM plugin tests skip without the [litellm] extra), FakeProvider in conftest.py
+                   litellm.md, adr/0001..0030
+tests/             one test module per source module, 280 tests (+4 PostgreSQL tests when LFG_TEST_DATABASE_URL is set;
+                   the 26 LiteLLM plugin tests skip without the [litellm] extra), FakeProvider in conftest.py
 ```
 
 ## Behaviour that must not regress
@@ -101,6 +101,9 @@ tests/             one test module per source module, 276 tests (+4 PostgreSQL t
   `responses` / `aresponses`, the estimate reads `input`, `instructions`, `tools` and
   `max_output_tokens`, marker under `litellm_metadata`, settles from the success event, a
   rejection speaks as on `/v1/messages`. Other call types (embeddings, images) pass through.
+- Run id (ADR-0030): optional `X-Run-Id` (free text, at most 128 characters, else 400), stored
+  in `cost_records.run_id`, echoed as `x_finops.run_id` and `X-FinOps-Run-Id`, in the FOCUS
+  `Tags`; a label only, no policy reads it.
 - Cache writes (Anthropic): `cache_write_input_tokens` is part of `input_tokens`,
   `cache_write_1h_input_tokens` part of that; billed at `cache_write` / `cache_write_1h`
   (fallback: `input`, then `cache_write`) and stored on the ledger row.
@@ -154,7 +157,7 @@ Bias toward caution over speed; for trivial tasks use judgment.
 - `make check` must be green before any commit: ruff (lint + format), mypy `--strict` on
   `src` and `tests`, pytest. Pre-commit is installed by `make install`.
 - Every module has a test module; new behaviour comes with a test in the same change.
-- Every design decision gets an ADR in `docs/adr/` (next number: 0030). ADR-0009 (evaluation
+- Every design decision gets an ADR in `docs/adr/` (next number: 0031). ADR-0009 (evaluation
   replay) is Proposed, not implemented.
 - Decimal for money everywhere; never float.
 - A schema change is a new revision in `migrations/versions` plus the same change in the models

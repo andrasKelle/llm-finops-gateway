@@ -157,6 +157,7 @@ class FinOpsEnvelope(BaseModel):
     use_case: str
     provider: str
     key_id: str | None = None
+    run_id: str | None = None  # the caller's X-Run-Id, if it sent one
     policy: PolicyEnvelope
 
 

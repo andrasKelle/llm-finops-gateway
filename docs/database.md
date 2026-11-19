@@ -23,7 +23,7 @@ docker run -d --name lfg-pg -e POSTGRES_PASSWORD=change-me -e POSTGRES_DB=lfg \
     -p 5432:5432 postgres:16-alpine
 pip install -e ".[postgres]"
 export LFG_DATABASE_URL=postgresql+psycopg://postgres:change-me@localhost:5432/lfg
-llm-finops-gateway ledger migrate        # prints: ledger schema: empty -> 0003
+llm-finops-gateway ledger migrate        # prints: ledger schema: empty -> 0004
 llm-finops-gateway serve                 # or skip the line above: an empty database is set up at start
 ```
 
@@ -42,6 +42,7 @@ The schema is versioned with Alembic revisions inside the package
 | `0001` | baseline: the two tables as 0.3 created them |
 | `0002` | `budget_counters.team` widened from 64 to 255 characters (ADR-0025) |
 | `0003` | `cost_records.cache_write_input_tokens` and `cache_write_1h_input_tokens` (ADR-0027) |
+| `0004` | `cost_records.run_id`, nullable and indexed (ADR-0030) |
 
 - **Empty database**: brought to the latest revision when the gateway (or any `ledger`
   command) first opens it. The connecting role needs CREATE for that one start.
@@ -76,6 +77,7 @@ The schema is versioned with Alembic revisions inside the package
 | `cached_input_tokens` | integer | part of `input_tokens` served from the prompt cache |
 | `cache_write_input_tokens` | integer | part of `input_tokens` written to the provider's prompt cache (Anthropic), 0 elsewhere |
 | `cache_write_1h_input_tokens` | integer | part of the written tokens with the one-hour lifetime |
+| `run_id` | varchar(128), nullable, indexed | the caller's `X-Run-Id`: the calls of one agent run or pipeline job (ADR-0030) |
 | `cost_usd` | numeric(14,8) | exact decimal in the price book's currency (name kept until 1.0) |
 | `price_book_version` | varchar(32) | the version the row was priced with |
 

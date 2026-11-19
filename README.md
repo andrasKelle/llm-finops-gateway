@@ -350,6 +350,10 @@ client = OpenAI(
 client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": "hi"}])
 ```
 
+An optional `X-Run-Id` header (free text, up to 128 characters: a branch, a pull request, a job
+id) ties the calls of one agent run or pipeline job together: it is stored on the ledger row,
+echoed as `x_finops.run_id` and `X-FinOps-Run-Id`, and exported in the FOCUS `Tags` (ADR-0030).
+
 ## Policy as code
 
 [`config/policies.yaml`](config/policies.yaml):

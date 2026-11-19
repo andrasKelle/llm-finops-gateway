@@ -294,12 +294,13 @@ class FinOpsPlugin(CustomLogger):
                     }
                 ),
             )
-        base = attribution_from_headers(team, project, use_case)
+        base = attribution_from_headers(team, project, use_case, headers.get("x-run-id"))
         attr = Attribution(
             team=base.team,
             project=base.project,
             use_case=base.use_case,
             key_id=getattr(user_api_key_dict, "key_alias", None),
+            run_id=base.run_id,
         )
 
         model = str(data.get("model") or "")
@@ -397,6 +398,7 @@ class FinOpsPlugin(CustomLogger):
                 cost_usd=cost,
                 price_book_version=book.version,
                 key_id=pending.attr.key_id,
+                run_id=pending.attr.run_id,
             ),
             release_reserved=pending.reserved_usd,
             project_reserved=pending.project_reserved_usd,
@@ -461,6 +463,8 @@ class FinOpsPlugin(CustomLogger):
         request_id = str(meta["request_id"])
         headers = {"X-FinOps-Request-Id": request_id, "X-FinOps-Currency": book.currency}
         pending = self._pending.get(request_id)
+        if pending is not None and pending.attr.run_id:
+            headers["X-FinOps-Run-Id"] = pending.attr.run_id
         usage = _usage_of(response)
         if pending is not None and usage is not None:
             # Non-streaming: the usage is here, settle now so the cost travels in the headers.

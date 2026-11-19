@@ -34,6 +34,7 @@ immutable once accepted; a later ADR supersedes an earlier one rather than editi
 | [0027](0027-claude-code-behind-the-plugin.md) | Claude Code and other Anthropic Messages clients run behind the LiteLLM plugin | Accepted |
 | [0028](0028-reservation-output-cap.md) | A budget may cap the output tokens its reservation assumes | Accepted |
 | [0029](0029-responses-route-and-copilot.md) | The Responses API route and GitHub Copilot behind the LiteLLM plugin | Accepted |
+| [0030](0030-run-id.md) | An optional run id ties the calls of one run together | Accepted |
 
 ## Template
 

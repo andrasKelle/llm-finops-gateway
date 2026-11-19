@@ -86,7 +86,8 @@ curl -s -X POST $LITELLM/key/generate -H "Authorization: Bearer $MASTER" \
   -d '{"team_id":"<team id>","key_alias":"support-bot","metadata":{"finops":{"project":"chat-assistant","use_case":"faq"}}}'
 ```
 
-`X-Project` and `X-Use-Case` still win when a call sends them.
+`X-Project` and `X-Use-Case` still win when a call sends them. An optional `X-Run-Id` header
+is stored on the ledger row and echoed as `X-FinOps-Run-Id` (ADR-0030).
 
 ## Try it locally
 

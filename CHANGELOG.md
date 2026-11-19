@@ -11,6 +11,10 @@ Schema revision `0004`: run `llm-finops-gateway ledger migrate` on an existing d
 starting this version.
 
 ### Added
+- Reports by use case and by run: `/v1/finops/summary` and its CSV accept `group_by=use_case`,
+  `group_by=run_id` and `run_id=`; the report page's chargeback table is grouped by use case,
+  lists the runs with their cost and shows one run on request, and the budgets table has a
+  use case column with a row per use case budget (ADR-0032).
 - Rules per use case: `use_cases` may be a mapping whose entries narrow the model list
   (`allowed_models`) and set a budget, reserved and settled next to the team, project and model
   budgets under `team/project/use_case/<use_case>` and reported as

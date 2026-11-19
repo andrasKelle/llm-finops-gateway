@@ -11,11 +11,11 @@ import json
 import logging
 import time
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
@@ -80,6 +80,7 @@ from .report import (
     PriceRow,
     ReportContext,
     ReportScope,
+    RunRow,
     login_error,
     render_login,
     render_report,
@@ -90,6 +91,8 @@ from .report import (
 from .telemetry import Telemetry
 
 log = logging.getLogger("llm_finops_gateway")
+
+GroupBy = Literal["use_case", "run_id"]  # extra dimensions of the cost summary
 
 
 def build_providers(settings: Settings) -> dict[str, Provider]:
@@ -677,8 +680,13 @@ def create_app(
             x_finops=envelope(cost, status),
         )
 
-    def cost_summary(team: str | None, project: str | None) -> CostSummary:
-        rows = ledger.summary(team=team, project=project)
+    def cost_summary(
+        team: str | None,
+        project: str | None,
+        group_by: Sequence[str] = (),
+        run_id: str | None = None,
+    ) -> CostSummary:
+        rows = ledger.summary(team=team, project=project, group_by=group_by, run_id=run_id)
         return CostSummary(
             currency=app.state.price_book.currency,
             rows=[
@@ -686,6 +694,8 @@ def create_app(
                     team=r.team,
                     project=r.project,
                     model=r.model,
+                    use_case=r.use_case,
+                    run_id=r.run_id,
                     calls=r.calls,
                     input_tokens=r.input_tokens,
                     output_tokens=r.output_tokens,
@@ -757,8 +767,10 @@ def create_app(
         scope: Annotated[ReportScope, Depends(resolve_report_scope)],
         team: str | None = None,
         project: str | None = None,
+        group_by: Annotated[list[GroupBy] | None, Query()] = None,
+        run_id: str | None = None,
     ) -> CostSummary:
-        return cost_summary(scope.narrow(team), project)
+        return cost_summary(scope.narrow(team), project, group_by or (), run_id)
 
     @app.get("/v1/finops/summary.csv", include_in_schema=True)
     async def finops_summary_csv(
@@ -766,10 +778,12 @@ def create_app(
         scope: Annotated[ReportScope, Depends(resolve_report_scope)],
         team: str | None = None,
         project: str | None = None,
+        group_by: Annotated[list[GroupBy] | None, Query()] = None,
+        run_id: str | None = None,
     ) -> Response:
-        summary = cost_summary(scope.narrow(team), project)
+        summary = cost_summary(scope.narrow(team), project, group_by or (), run_id)
         return Response(
-            content=summary_csv(summary.rows, summary.currency),
+            content=summary_csv(summary.rows, summary.currency, group_by or ()),
             media_type="text/csv",
             headers={"Content-Disposition": 'attachment; filename="llm-finops-summary.csv"'},
         )
@@ -858,7 +872,9 @@ def create_app(
             return {"user_id": user_id, "user_role": user_role}
 
     @app.get("/finops", response_class=HTMLResponse, include_in_schema=False)
-    async def finops_page(request: Request, team: str | None = None) -> HTMLResponse:
+    async def finops_page(
+        request: Request, team: str | None = None, run_id: str | None = None
+    ) -> HTMLResponse:
         state = _state(request)
         current: PolicySet = state.policies
         book: PriceBook = state.price_book
@@ -871,7 +887,17 @@ def create_app(
                 return HTMLResponse(render_login())
             raise
         team_filter = scope.narrow(team)
-        summary = cost_summary(team_filter, None)
+        summary = cost_summary(team_filter, None, ("use_case",), run_id)
+        # the runs in scope, most expensive first
+        by_run: dict[str, tuple[int, Decimal]] = {}
+        for r in ledger.summary(team=team_filter, group_by=("run_id",)):
+            if r.run_id is not None:
+                calls, cost = by_run.get(r.run_id, (0, Decimal(0)))
+                by_run[r.run_id] = (calls + r.calls, cost + r.cost_usd)
+        runs = [
+            RunRow(run_id=k, calls=v[0], cost=money(v[1]))
+            for k, v in sorted(by_run.items(), key=lambda kv: -kv[1][1])[:50]
+        ]
         budgets = budget_rows(team_filter)
         teams = [b.team for b in budgets]
 
@@ -922,6 +948,8 @@ def create_app(
             month_start=month_start().date().isoformat(),
             scope=scope,
             team_filter=team if scope.team is None else None,
+            run_filter=run_id,
+            runs=runs,
             budgets=budgets,
             rows=summary.rows,
             total=summary.total_cost_usd,

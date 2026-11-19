@@ -203,6 +203,8 @@ class CostSummaryRow(BaseModel):
     team: str
     project: str
     model: str
+    use_case: str | None = None  # set when the summary is grouped by it
+    run_id: str | None = None
     calls: int
     input_tokens: int
     output_tokens: int

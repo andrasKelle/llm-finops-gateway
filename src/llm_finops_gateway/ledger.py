@@ -7,6 +7,7 @@ pass; the ledger row and the counter settlement are written in one transaction.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -140,6 +141,8 @@ class SummaryRow:
     input_tokens: int
     output_tokens: int
     cost_usd: Decimal
+    use_case: str | None = None  # set when the summary is grouped by it
+    run_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -356,24 +359,35 @@ class Ledger:
                 for r in records
             ]
 
-    def summary(self, team: str | None = None, project: str | None = None) -> list[SummaryRow]:
+    def summary(
+        self,
+        team: str | None = None,
+        project: str | None = None,
+        *,
+        group_by: Sequence[str] = (),
+        run_id: str | None = None,
+    ) -> list[SummaryRow]:
+        """Calls, tokens and cost per team, project and model, optionally split further by
+        ``use_case`` and ``run_id`` (``group_by``) and limited to one run."""
+        extra = [getattr(CostRecord, name) for name in ("use_case", "run_id") if name in group_by]
+        keys = [CostRecord.team, CostRecord.project, CostRecord.model, *extra]
         stmt = (
             select(
-                CostRecord.team,
-                CostRecord.project,
-                CostRecord.model,
+                *keys,
                 func.count().label("calls"),
                 func.coalesce(func.sum(CostRecord.input_tokens), 0).label("input_tokens"),
                 func.coalesce(func.sum(CostRecord.output_tokens), 0).label("output_tokens"),
                 func.coalesce(func.sum(CostRecord.cost_usd), 0).label("cost_usd"),
             )
-            .group_by(CostRecord.team, CostRecord.project, CostRecord.model)
-            .order_by(CostRecord.team, CostRecord.project, CostRecord.model)
+            .group_by(*keys)
+            .order_by(*keys)
         )
         if team:
             stmt = stmt.where(CostRecord.team == team)
         if project:
             stmt = stmt.where(CostRecord.project == project)
+        if run_id:
+            stmt = stmt.where(CostRecord.run_id == run_id)
         with Session(self._engine) as session:
             rows = session.execute(stmt).all()
         return [
@@ -385,6 +399,8 @@ class Ledger:
                 input_tokens=int(r.input_tokens),
                 output_tokens=int(r.output_tokens),
                 cost_usd=clean(r.cost_usd),
+                use_case=r.use_case if "use_case" in group_by else None,
+                run_id=r.run_id if "run_id" in group_by else None,
             )
             for r in rows
         ]

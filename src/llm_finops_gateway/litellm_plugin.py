@@ -56,8 +56,7 @@ MESSAGES_CALL_TYPES = frozenset({"anthropic_messages", "aanthropic_messages"})
 # ADR-0029). `input` and `instructions` replace `messages`, and `metadata` is the client's own
 # field here as well.
 RESPONSES_CALL_TYPES = frozenset({"responses", "aresponses"})
-# The routes a coding agent calls: LiteLLM's metadata sits under `litellm_metadata`, and the
-# client shows its user only the error message.
+# On these two routes LiteLLM's own metadata sits under `litellm_metadata`.
 AGENT_CALL_TYPES = MESSAGES_CALL_TYPES | RESPONSES_CALL_TYPES
 PENDING_MAX_AGE_S = 3600.0
 
@@ -140,10 +139,10 @@ def _responses_input(value: Any) -> tuple[list[dict[str, Any]], int]:
 
 
 def _spoken(detail: dict[str, Any]) -> dict[str, Any]:
-    """The rejection body for `/v1/messages` and `/v1/responses`. LiteLLM passes only
-    ``detail["error"]`` on as the error message, and a coding agent shows the developer nothing
-    but that message, so the explanation goes next to the code there; the bare code stays
-    available as ``code``."""
+    """The rejection body on every route (ADR-0034). LiteLLM passes only ``detail["error"]`` on
+    as the error message, and a coding agent or an editor shows the developer at most that
+    message, so the explanation goes next to the code there; the bare code stays available as
+    ``code``."""
     text = detail.get("message") or detail.get("hint")
     if not text:
         return detail
@@ -262,14 +261,13 @@ class FinOpsPlugin(CustomLogger):
             return data
         book, engine, ledger = self._ensure()
         self._sweep(ledger)
-        shape = _spoken if call_type in AGENT_CALL_TYPES else dict
 
         headers = (data.get("proxy_server_request") or {}).get("headers") or {}
         team = getattr(user_api_key_dict, "team_alias", None)
         if not team:
             raise HTTPException(
                 status_code=400,
-                detail=shape(
+                detail=_spoken(
                     {
                         "error": "missing_attribution",
                         "missing": ["team"],
@@ -287,7 +285,7 @@ class FinOpsPlugin(CustomLogger):
         if not project:
             raise HTTPException(
                 status_code=400,
-                detail=shape(
+                detail=_spoken(
                     {
                         "error": "missing_attribution",
                         "missing_headers": ["X-Project"],
@@ -335,7 +333,7 @@ class FinOpsPlugin(CustomLogger):
             if decision.violation == "budget_exceeded" and self._alerter is not None:
                 self._alerter.budget_block(attr.team, decision.budget, decision.message or "")
             status_code, detail, extra = rejection(decision, attr, model, engine.version)
-            raise HTTPException(status_code=status_code, detail=shape(detail), headers=extra)
+            raise HTTPException(status_code=status_code, detail=_spoken(detail), headers=extra)
         if decision.warnings and decision.budget is not None and self._alerter is not None:
             self._alerter.budget_warn(attr.team, decision.budget, decision.warnings[0])
 

@@ -60,7 +60,7 @@ docs/database.md   ledger engines, schema, PostgreSQL roles (lfgadmin/lfg_app/lf
 docs/images/       README images; diagrams.py draws architecture.svg and architecture-litellm.svg
                    (`python docs/images/diagrams.py`, needs the [demo] extra)
 docs/              architecture.md, deployment.md, azure-setup.md, testing-plan.md, comparison.md,
-                   litellm.md, adr/0001..0033
+                   litellm.md, adr/0001..0034
 tests/             one test module per source module, 297 tests (+4 PostgreSQL tests when LFG_TEST_DATABASE_URL is set;
                    the 28 LiteLLM plugin tests skip without the [litellm] extra), FakeProvider in conftest.py
 ```
@@ -99,8 +99,9 @@ tests/             one test module per source module, 297 tests (+4 PostgreSQL t
 - Plugin on `/v1/messages` (ADR-0027, measured on LiteLLM 1.108.0): call type
   `anthropic_messages`, the plugin's marker goes under `litellm_metadata` (`metadata` is the
   Anthropic request field and is not touched), every call settles from the success event, a
-  rejection's `error` is `code: explanation` with the bare code in `code` (the chat route keeps
-  the bare code), `/v1/messages/count_tokens` never reaches the plugin.
+  rejection's `error` is `code: explanation` with the bare code in `code`, on every plugin
+  route since ADR-0034 (the gateway's own rejections are unchanged), `/v1/messages/count_tokens`
+  never reaches the plugin.
 - Plugin on `/v1/responses` (ADR-0029, measured with Copilot CLI 1.0.114 and VS Code 1.143.1): call types
   `responses` / `aresponses`, the estimate reads `input`, `instructions`, `tools` and
   `max_output_tokens`, marker under `litellm_metadata`, settles from the success event, a
@@ -168,7 +169,7 @@ Bias toward caution over speed; for trivial tasks use judgment.
 - `make check` must be green before any commit: ruff (lint + format), mypy `--strict` on
   `src` and `tests`, pytest. Pre-commit is installed by `make install`.
 - Every module has a test module; new behaviour comes with a test in the same change.
-- Every design decision gets an ADR in `docs/adr/` (next number: 0034). ADR-0009 (evaluation
+- Every design decision gets an ADR in `docs/adr/` (next number: 0035). ADR-0009 (evaluation
   replay) is Proposed, not implemented.
 - Decimal for money everywhere; never float.
 - A schema change is a new revision in `migrations/versions` plus the same change in the models

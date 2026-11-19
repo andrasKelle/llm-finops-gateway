@@ -1,7 +1,7 @@
 # 0027. Claude Code and other Anthropic Messages clients run behind the LiteLLM plugin
 
 Date: 2026-11-16
-Status: Accepted
+Status: Accepted (the chat completions route was aligned with this one by ADR-0034)
 
 ## Context
 

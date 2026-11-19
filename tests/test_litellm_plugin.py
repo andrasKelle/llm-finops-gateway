@@ -112,7 +112,10 @@ async def test_missing_project_is_400_before_the_call(plugin: FinOpsPlugin) -> N
         await plugin.async_pre_call_hook(key(), None, request(project=None), "acompletion")
     assert exc.value.status_code == 400
     detail = detail_of(exc.value)
-    assert detail["error"] == "missing_attribution"
+    # LiteLLM hands only `error` to the client as the message: the explanation rides along,
+    # the bare code is in `code` (ADR-0034)
+    assert detail["code"] == "missing_attribution"
+    assert detail["error"].startswith("missing_attribution: Set X-Project")
     assert detail["missing_headers"] == ["X-Project"]
     assert "X-Team" not in detail["hint"]
 
@@ -233,7 +236,8 @@ async def test_budget_blocks_with_403_once_spent(plugin: FinOpsPlugin, ledger: L
         await plugin.async_pre_call_hook(key(), None, request(), "acompletion")
     assert exc.value.status_code == 403
     detail = detail_of(exc.value)
-    assert detail["error"] == "budget_exceeded"
+    assert detail["code"] == "budget_exceeded"
+    assert detail["error"].startswith("budget_exceeded: team 'customer-support' has used")
     assert detail["budget"]["level"] == "block"
 
 
@@ -297,7 +301,7 @@ async def test_project_registry_and_project_budget_in_litellm_mode(
     with pytest.raises(HTTPException) as exc:
         await p.async_pre_call_hook(k, None, request(project="pilot-7"), "acompletion")
     assert exc.value.status_code == 403
-    assert detail_of(exc.value)["error"] == "project_not_registered"
+    assert detail_of(exc.value)["code"] == "project_not_registered"
 
     data = await p.async_pre_call_hook(k, None, request(), "acompletion")
     assert data is not None
@@ -594,7 +598,7 @@ async def test_messages_budget_block_tells_the_developer_which_budget(
     )
     assert ledger.counter("dev").reserved_usd == 0
 
-    # the chat route keeps the bare code in `error`
+    # the chat route speaks the same way (ADR-0034)
     with pytest.raises(HTTPException) as exc:
         await claude_plugin.async_pre_call_hook(
             key(team="dev", alias="dev-laptop"),
@@ -602,8 +606,8 @@ async def test_messages_budget_block_tells_the_developer_which_budget(
             request(model="claude-sonnet-5-5", project="my-repo"),
             "acompletion",
         )
-    assert detail_of(exc.value)["error"] == "budget_exceeded"
-    assert "code" not in detail_of(exc.value)
+    assert detail_of(exc.value)["code"] == "budget_exceeded"
+    assert detail_of(exc.value)["error"].startswith("budget_exceeded: model 'claude-sonnet-5-5'")
 
 
 async def test_messages_failure_releases_the_reservation(
@@ -802,7 +806,8 @@ async def test_use_case_rules_in_litellm_mode(tmp_path: Path, ledger: Ledger) ->
             planning, None, request(project="checkout-web"), "acompletion"
         )
     assert exc.value.status_code == 403
-    assert detail_of(exc.value)["error"] == "model_not_allowed"
+    assert detail_of(exc.value)["code"] == "model_not_allowed"
+    assert "use case 'plan' of project 'checkout-web'" in detail_of(exc.value)["error"]
 
     # a failed call gives the use case reservation back too
     data = await plugin.async_pre_call_hook(k, None, request(project="checkout-web"), "acompletion")

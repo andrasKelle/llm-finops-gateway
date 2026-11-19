@@ -42,15 +42,19 @@ OpenAI Responses route `/v1/responses`, which GitHub Copilot can call (ADR-0029)
 | Release | `async_log_failure_event` | The reservation is given back when the upstream call fails |
 
 On `/v1/messages` the project and use case come from the same headers (Claude Code sends
-them through `ANTHROPIC_CUSTOM_HEADERS`), a rejection carries its explanation in the error
-message (`budget_exceeded: team 'dev' has used ...`, the bare code in `code`), and
-`/v1/messages/count_tokens` passes through without the plugin.
+them through `ANTHROPIC_CUSTOM_HEADERS`) and `/v1/messages/count_tokens` passes through
+without the plugin.
 
-On `/v1/responses` the estimate reads `input`, `instructions`, `tools` and `max_output_tokens`,
-and a rejection carries its explanation the same way. What the developer sees depends on the
-client: Copilot CLI shows the message of a `400` and replaces a `403` with a generic
-authentication message; VS Code shows `error.message` of a `403` (the bare code on the chat
-completions route) and the whole body of a `400`, after five retries. GitHub Copilot CLI sends no custom
+A rejection carries its explanation in the error message on every route
+(`budget_exceeded: team 'dev' has used ...`), with the bare code in
+`provider_specific_fields.code` (ADR-0034): LiteLLM passes only that message on, and editors
+and coding agents show the developer nothing else.
+
+On `/v1/responses` the estimate reads `input`, `instructions`, `tools` and
+`max_output_tokens`. What the developer sees of a rejection depends on the client: Copilot
+CLI shows the message of a `400` and replaces a `403` with a generic authentication message;
+VS Code shows the message of a `403` and the whole body of a `400`, after five retries.
+GitHub Copilot CLI sends no custom
 headers, so give its LiteLLM key the project and the use case in the key metadata; VS Code's
 Custom Endpoint provider can set `X-Project` and `X-Use-Case` per model with `requestHeaders`.
 Other call types (embeddings, images, audio) pass through without the plugin.

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -140,3 +141,38 @@ def test_cache_write_tokens_are_stored_on_the_row(ledger: Ledger) -> None:
     assert rows["cw"].cache_write_input_tokens == 3_000
     assert rows["cw"].cache_write_1h_input_tokens == 1_000
     assert rows["plain"].cache_write_input_tokens == 0
+
+
+def test_summary_groups_by_use_case_and_run_and_filters_one_run(ledger: Ledger) -> None:
+    def entry(rid: str, use_case: str, run_id: str | None, cost: str) -> CostEntry:
+        return replace(_entry(rid, cost=cost), use_case=use_case, run_id=run_id)
+
+    ledger.record(entry("a", "plan", "spec-42", "0.3"))
+    ledger.record(entry("b", "implement", "spec-42", "0.2"))
+    ledger.record(entry("c", "implement", "spec-42", "0.1"))
+    ledger.record(entry("d", "implement", None, "0.4"))
+
+    (plain,) = ledger.summary()
+    assert (plain.calls, plain.cost_usd, plain.use_case, plain.run_id) == (
+        4,
+        Decimal("1"),
+        None,
+        None,
+    )
+
+    by_use_case = {
+        r.use_case: (r.calls, r.cost_usd) for r in ledger.summary(group_by=("use_case",))
+    }
+    assert by_use_case == {"implement": (3, Decimal("0.7")), "plan": (1, Decimal("0.3"))}
+
+    both = {
+        (r.use_case, r.run_id): r.cost_usd for r in ledger.summary(group_by=("use_case", "run_id"))
+    }
+    assert both == {
+        ("plan", "spec-42"): Decimal("0.3"),
+        ("implement", "spec-42"): Decimal("0.3"),
+        ("implement", None): Decimal("0.4"),
+    }
+
+    one_run = ledger.summary(group_by=("use_case",), run_id="spec-42")
+    assert sorted((r.use_case, r.calls) for r in one_run) == [("implement", 2), ("plan", 1)]

@@ -455,7 +455,7 @@ parse keeps the previous version running and logs the error (ADR-0022).
 | POST   | `/v1/chat/completions`   | OpenAI-compatible chat completion, `stream: true` supported |
 | GET    | `/v1/models`             | Models the price book knows, and which provider serves each |
 | GET    | `/finops`                | Report page: budgets and chargeback, HTML, no build step   |
-| GET    | `/v1/finops/summary`     | Cost grouped by team / project / model, filterable         |
+| GET    | `/v1/finops/summary`     | Cost grouped by team / project / model; `group_by=use_case`, `group_by=run_id` and `run_id=` split or narrow it |
 | GET    | `/v1/finops/summary.csv` | The same rows as CSV for spreadsheets and BI tools         |
 | GET    | `/v1/finops/budgets`     | Month-to-date budget, rate limit, allow-list and project registry per team |
 | GET    | `/v1/finops/export.focus.csv` | The ledger as FOCUS rows per day (`from`, `to`, `team`, `project`), for FinOps datasets |
@@ -465,10 +465,12 @@ parse keeps the previous version running and logs the error (ADR-0022).
 
 ![The /finops report page](https://raw.githubusercontent.com/andrasKelle/llm-finops-gateway/main/docs/images/finops-report.png)
 
-The budgets table has one row per team, registered project and configured model budget,
-with separate project and model columns. Each row shows its own budget state; an unbudgeted
-scope says "no budget". The policy table includes the output-token reservation cap next to
-the reservation fallback. These views display existing policy data without changing enforcement.
+The budgets table has one row per team, registered project, configured model budget and use
+case budget, with separate project, use case and model columns. Each row shows its own budget
+state; an unbudgeted scope says "no budget". The policy table includes the output-token
+reservation cap next to the reservation fallback. The chargeback table is grouped by use case,
+and a `Runs` section lists the runs that sent an `X-Run-Id`, each linking to the page for that
+run alone: the cost of one feature, split by phase and model (ADR-0032).
 
 Reports follow one access rule (ADR-0016): with `LFG_AUTH_MODE=api_key` a team key reads its
 own team, a key with `role: finops` (`keys new --role finops`) reads every team, and the HTML

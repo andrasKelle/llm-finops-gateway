@@ -60,8 +60,8 @@ docs/database.md   ledger engines, schema, PostgreSQL roles (lfgadmin/lfg_app/lf
 docs/images/       README images; diagrams.py draws architecture.svg and architecture-litellm.svg
                    (`python docs/images/diagrams.py`, needs the [demo] extra)
 docs/              architecture.md, deployment.md, azure-setup.md, testing-plan.md, comparison.md,
-                   litellm.md, adr/0001..0031
-tests/             one test module per source module, 287 tests (+4 PostgreSQL tests when LFG_TEST_DATABASE_URL is set;
+                   litellm.md, adr/0001..0032
+tests/             one test module per source module, 291 tests (+4 PostgreSQL tests when LFG_TEST_DATABASE_URL is set;
                    the 27 LiteLLM plugin tests skip without the [litellm] extra), FakeProvider in conftest.py
 ```
 
@@ -128,6 +128,9 @@ tests/             one test module per source module, 287 tests (+4 PostgreSQL t
   usage chunk; the `x_finops` block is in the last SSE event. No usage -> billed at the
   estimate with `usage_estimated: true`; mid-stream failure -> reservation released, error
   event, no ledger row (ADR-0012).
+- Summary by use case and run (ADR-0032): `group_by=use_case|run_id` and `run_id=` on
+  `/v1/finops/summary(.csv)`; without them rows and CSV header are unchanged. `/finops` groups
+  the chargeback by use case, lists runs and takes `?run_id=`.
 - Endpoints: `/v1/chat/completions`, `/v1/models`, `/v1/finops/summary`, `/v1/finops/summary.csv`,
   `/v1/finops/export.focus.csv` (FOCUS rows per day, ADR-0023), `/v1/finops/budgets`, `/finops` (HTML),
   `/metrics`, `/healthz`; with `LFG_LITELLM_PLUGIN_NAME` + `LFG_LITELLM_SALT_KEY`: `/`, `/api/plugin-manifest`,
@@ -161,7 +164,7 @@ Bias toward caution over speed; for trivial tasks use judgment.
 - `make check` must be green before any commit: ruff (lint + format), mypy `--strict` on
   `src` and `tests`, pytest. Pre-commit is installed by `make install`.
 - Every module has a test module; new behaviour comes with a test in the same change.
-- Every design decision gets an ADR in `docs/adr/` (next number: 0032). ADR-0009 (evaluation
+- Every design decision gets an ADR in `docs/adr/` (next number: 0033). ADR-0009 (evaluation
   replay) is Proposed, not implemented.
 - Decimal for money everywhere; never float.
 - A schema change is a new revision in `migrations/versions` plus the same change in the models

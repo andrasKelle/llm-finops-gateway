@@ -21,9 +21,11 @@ import csv
 import html
 import io
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Annotated, Any
+from urllib.parse import quote
 
 from fastapi import Header, HTTPException, Request
 
@@ -107,14 +109,18 @@ def resolve_report_scope(
     return scope_for(request, authorization, x_team)
 
 
-def summary_csv(rows: list[CostSummaryRow], currency: str) -> str:
+def summary_csv(rows: list[CostSummaryRow], currency: str, group_by: Sequence[str] = ()) -> str:
+    """The summary as CSV; ``use_case`` and ``run_id`` columns appear when grouped by them."""
+    use_case, run = "use_case" in group_by, "run_id" in group_by
     out = io.StringIO()
     writer = csv.writer(out)
     writer.writerow(
         [
             "team",
             "project",
+            *(["use_case"] if use_case else []),
             "model",
+            *(["run_id"] if run else []),
             "calls",
             "input_tokens",
             "output_tokens",
@@ -123,7 +129,17 @@ def summary_csv(rows: list[CostSummaryRow], currency: str) -> str:
     )
     for r in rows:
         writer.writerow(
-            [r.team, r.project, r.model, r.calls, r.input_tokens, r.output_tokens, r.cost_usd]
+            [
+                r.team,
+                r.project,
+                *([r.use_case] if use_case else []),
+                r.model,
+                *([r.run_id or ""] if run else []),
+                r.calls,
+                r.input_tokens,
+                r.output_tokens,
+                r.cost_usd,
+            ]
         )
     return out.getvalue()
 
@@ -155,6 +171,15 @@ class PriceRow:
 
 
 @dataclass(frozen=True)
+class RunRow:
+    """One run (the caller's X-Run-Id, ADR-0030) with its calls and cost."""
+
+    run_id: str
+    calls: int
+    cost: str
+
+
+@dataclass(frozen=True)
 class ReportContext:
     version: str
     price_book_version: str
@@ -174,6 +199,8 @@ class ReportContext:
     policy_rows: list[PolicyRow] = field(default_factory=list)
     policy_yaml: str | None = None
     price_rows: list[PriceRow] = field(default_factory=list)
+    run_filter: str | None = None  # the chargeback shows this run only
+    runs: list[RunRow] = field(default_factory=list)
 
 
 # ---- rendering -----------------------------------------------------------------------------
@@ -363,10 +390,11 @@ def _budget_rows(rows: list[TeamBudgetRow]) -> str:
         budget: BudgetEnvelope | None,
         allowed_models: list[str],
         rate: int | None = None,
+        use_case: str = "-",
     ) -> str:
         return (
-            f'<tr data-team="{_e(team)}"><td>{_e(team)}</td>'
-            f"<td>{_e(project)}</td><td>{_e(model)}</td>{_budget_cells(budget)}"
+            f'<tr data-team="{_e(team)}"><td>{_e(team)}</td><td>{_e(project)}</td>'
+            f"<td>{_e(use_case)}</td><td>{_e(model)}</td>{_budget_cells(budget)}"
             f'<td class="num">{rate if rate is not None else "-"}</td>'
             f"<td>{_e(', '.join(allowed_models))}</td></tr>"
         )
@@ -384,7 +412,11 @@ def _budget_rows(rows: list[TeamBudgetRow]) -> str:
             )
             for model, budget in (project.model_budgets or {}).items():
                 body.append(render(row.team, project.project, model, budget, ["-"]))
-    return "".join(body) or '<tr><td colspan="9">no teams yet</td></tr>'
+            for use_case, budget in (project.use_case_budgets or {}).items():
+                body.append(
+                    render(row.team, project.project, "-", budget, ["-"], use_case=use_case)
+                )
+    return "".join(body) or '<tr><td colspan="10">no teams yet</td></tr>'
 
 
 def _policy_table(rows: list[PolicyRow]) -> str:
@@ -430,14 +462,30 @@ def render_report(ctx: ReportContext) -> str:
     budget_rows = _budget_rows(ctx.budgets)
     cost_rows = (
         "".join(
-            f'<tr data-team="{_e(r.team)}"><td>{_e(r.team)}</td><td>{_e(r.project)}</td><td>{_e(r.model)}</td>'
+            f'<tr data-team="{_e(r.team)}"><td>{_e(r.team)}</td><td>{_e(r.project)}</td>'
+            f"<td>{_e(r.use_case or '-')}</td><td>{_e(r.model)}</td>"
             f'<td class="num">{r.calls}</td><td class="num">{r.input_tokens}</td>'
             f'<td class="num">{r.output_tokens}</td>{_amt(r.cost_usd, "cost")}</tr>'
             for r in ctx.rows
         )
-        or '<tr><td colspan="7">no calls recorded this month</td></tr>'
+        or '<tr><td colspan="8">no calls recorded this month</td></tr>'
     )
     filter_note = f" for team <b>{_e(ctx.team_filter)}</b>" if ctx.team_filter else ""
+    if ctx.run_filter:
+        filter_note += f' for run <b>{_e(ctx.run_filter)}</b> (<a href="?">all runs</a>)'
+    run_rows = "".join(
+        f'<tr><td><a href="?run_id={quote(r.run_id, safe="")}">{_e(r.run_id)}</a></td>'
+        f'<td class="num">{r.calls}</td>{_amt(r.cost)}</tr>'
+        for r in ctx.runs
+    )
+    runs = (
+        f'<details id="runs"><summary>Runs: {len(ctx.runs)} with calls on record</summary>'
+        '<table class="sortable" id="runs-table"><thead><tr><th data-key>run id</th>'
+        '<th class="num" data-key>calls</th><th class="num" data-key>cost <span class="cur"></span></th>'
+        f"</tr></thead><tbody>{run_rows}</tbody></table></details>"
+        if ctx.runs
+        else ""
+    )
     logout = '<a href="/finops/logout">sign out</a>' if ctx.scope.key_id else ""
     currencies = "".join(
         f'<option value="{_e(code)}">{_e(code)}</option>'
@@ -477,15 +525,17 @@ def render_report(ctx: ReportContext) -> str:
 <script type="application/json" id="rates">{json.dumps(rates)}</script>
 
 <h2>Budgets <input class="filter" data-table="budgets" placeholder="filter rows"></h2>
-<table class="sortable" id="budgets"><thead><tr><th data-key>team</th><th data-key>project</th><th data-key>model</th><th class="num" data-key>spent <span class="cur"></span></th><th class="num" data-key>limit <span class="cur"></span></th><th data-key>used</th>
+<table class="sortable" id="budgets"><thead><tr><th data-key>team</th><th data-key>project</th><th data-key>use case</th><th data-key>model</th><th class="num" data-key>spent <span class="cur"></span></th><th class="num" data-key>limit <span class="cur"></span></th><th data-key>used</th>
 <th data-key>status</th><th class="num" data-key>req/min</th><th data-key>allowed models</th></tr></thead>
 <tbody>{budget_rows}</tbody></table>
 
 <h2>Chargeback{filter_note} <input class="filter" data-table="chargeback" placeholder="filter rows"> <small id="row-count"></small></h2>
-<table class="sortable" id="chargeback"><thead><tr><th data-key>team</th><th data-key>project</th><th data-key>model</th><th class="num" data-key>calls</th>
+<table class="sortable" id="chargeback"><thead><tr><th data-key>team</th><th data-key>project</th><th data-key>use case</th><th data-key>model</th><th class="num" data-key>calls</th>
 <th class="num" data-key>input tokens</th><th class="num" data-key>output tokens</th><th class="num" data-key>cost <span class="cur"></span></th></tr></thead>
 <tbody>{cost_rows}</tbody>
-<tfoot><tr><th colspan="6">total (visible rows)</th><th class="num amt" id="total" data-amt="{_e(ctx.total)}">{_e(ctx.total)}</th></tr></tfoot></table>
+<tfoot><tr><th colspan="7">total (visible rows)</th><th class="num amt" id="total" data-amt="{_e(ctx.total)}">{_e(ctx.total)}</th></tr></tfoot></table>
+
+{runs}
 
 <details id="policy"><summary>Policies {_e(ctx.policy_version)}: what applies to each team</summary>
 <p class="muted">Teams not listed in the file get the defaults row. Budgets are month to date (UTC); warn and block are fractions of the monthly amount.</p>

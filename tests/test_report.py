@@ -258,8 +258,124 @@ def test_budget_rows_keep_their_columns_and_name_a_model_once() -> None:
     rows = re.findall(r"<tr.*?</tr>", _budget_rows([team]))
     assert len(rows) == 3
     # a row without a budget used to merge four cells, which shifted its columns when sorting
-    assert [len(re.findall(r"<td", row)) for row in rows] == [9, 9, 9]
+    assert [len(re.findall(r"<td", row)) for row in rows] == [10, 10, 10]
     assert "colspan" not in "".join(rows) and rows[0].count("no budget") == 1
     # a model budget's row names its model in the model column only
     assert rows[1].count("m-1") == 1 and rows[1].endswith("<td>-</td></tr>")
     assert rows[0].endswith("<td>m-1, m-2</td></tr>") and rows[2].endswith("<td>m-2</td></tr>")
+
+
+def _run_entry(rid: str, team: str, use_case: str, run_id: str | None, cost: str) -> CostEntry:
+    return CostEntry(
+        request_id=rid,
+        team=team,
+        project="p",
+        use_case=use_case,
+        provider="fake",
+        model="priced",
+        input_tokens=10,
+        output_tokens=5,
+        cost_usd=Decimal(cost),
+        price_book_version="test-1",
+        run_id=run_id,
+    )
+
+
+@pytest.fixture
+def runs_client(
+    pricing_path: Path, price_book: PriceBook, ledger: Ledger, tmp_path: Path
+) -> Iterator[TestClient]:
+    ledger.record(_run_entry("a", "platform", "plan", "spec <42>", "0.3"))
+    ledger.record(_run_entry("b", "platform", "implement", "spec <42>", "0.2"))
+    ledger.record(_run_entry("c", "platform", "implement", None, "0.4"))
+    ledger.record(_run_entry("d", "research", "plan", "other-run", "0.05"))
+    with _app("api_key", pricing_path, price_book, ledger, tmp_path) as c:
+        yield c
+
+
+def test_summary_api_and_csv_group_by_use_case_and_run(runs_client: TestClient) -> None:
+    auth = {"Authorization": f"Bearer {RAW_FINOPS}"}
+    plain = runs_client.get("/v1/finops/summary", headers=auth).json()
+    assert {(r["team"], r["use_case"], r["run_id"]) for r in plain["rows"]} == {
+        ("platform", None, None),
+        ("research", None, None),
+    }
+    grouped = runs_client.get(
+        "/v1/finops/summary?group_by=use_case&group_by=run_id", headers=auth
+    ).json()
+    assert {(r["use_case"], r["run_id"], r["cost_usd"]) for r in grouped["rows"]} == {
+        ("plan", "spec <42>", "0.3"),
+        ("implement", "spec <42>", "0.2"),
+        ("implement", None, "0.4"),
+        ("plan", "other-run", "0.05"),
+    }
+    one = runs_client.get(
+        "/v1/finops/summary", params={"group_by": "use_case", "run_id": "spec <42>"}, headers=auth
+    ).json()
+    assert one["total_cost_usd"] == "0.5" and len(one["rows"]) == 2
+    assert runs_client.get("/v1/finops/summary?group_by=model", headers=auth).status_code == 422
+
+    csv_plain = runs_client.get("/v1/finops/summary.csv", headers=auth).text
+    assert (
+        csv_plain.splitlines()[0] == "team,project,model,calls,input_tokens,output_tokens,cost_usd"
+    )
+    csv_grouped = runs_client.get(
+        "/v1/finops/summary.csv?group_by=use_case&group_by=run_id", headers=auth
+    ).text
+    assert csv_grouped.splitlines()[0] == (
+        "team,project,use_case,model,run_id,calls,input_tokens,output_tokens,cost_usd"
+    )
+    assert "platform,p,plan,priced,spec <42>,1,10,5,0.3" in csv_grouped.splitlines()
+
+    # a team key reads its own team's runs only
+    own = runs_client.get(
+        "/v1/finops/summary?group_by=run_id", headers={"Authorization": f"Bearer {RAW_PLATFORM}"}
+    ).json()
+    assert {r["run_id"] for r in own["rows"]} == {"spec <42>", None}
+
+
+def test_report_page_shows_use_cases_runs_and_one_run(runs_client: TestClient) -> None:
+    auth = {"Authorization": f"Bearer {RAW_FINOPS}"}
+    text = runs_client.get("/finops", headers=auth).text
+    chargeback = text.split('id="chargeback"', 1)[1].split("</table>", 1)[0]
+    assert "<th data-key>use case</th>" in chargeback
+    assert "<td>plan</td>" in chargeback and "<td>implement</td>" in chargeback
+    assert '<th colspan="7">total (visible rows)</th>' in chargeback
+    # the runs of the month, most expensive first, each linking to its own view
+    runs = text.split('<details id="runs">', 1)[1].split("</details>", 1)[0]
+    assert runs.index("spec &lt;42&gt;") < runs.index("other-run") and "<42>" not in runs
+    assert 'href="?run_id=spec%20%3C42%3E"' in runs and 'data-amt="0.5"' in runs
+
+    one = runs_client.get("/finops", params={"run_id": "spec <42>"}, headers=auth).text
+    assert "run <b>spec &lt;42&gt;</b>" in one
+    rows = one.split('id="chargeback"', 1)[1].split("</tbody>", 1)[0]
+    assert len(re.findall(r"<tr data-team=", rows)) == 2 and "research" not in rows
+    assert 'id="total" data-amt="0.5"' in one
+
+    # a team key does not see another team's run
+    mine = runs_client.get("/finops", headers={"Authorization": f"Bearer {RAW_PLATFORM}"}).text
+    assert "other-run" not in mine and "spec &lt;42&gt;" in mine
+
+
+def test_budget_table_has_a_row_per_use_case_budget() -> None:
+    from llm_finops_gateway.models import BudgetEnvelope, ProjectBudgetRow, TeamBudgetRow
+    from llm_finops_gateway.report import _budget_rows
+
+    budget = BudgetEnvelope(
+        limit_usd="2",
+        spent_usd="1",
+        reserved_usd="0",
+        used_pct="50.0",
+        remaining_usd="1",
+        level="ok",
+        enforcement="block",
+        warn_at_pct="80",
+        block_at_pct="100",
+    )
+    project = ProjectBudgetRow(
+        project="p", allowed_models=["m-1"], budget=None, use_case_budgets={"implement": budget}
+    )
+    team = TeamBudgetRow(team="t", allowed_models=["m-1"], budget=None, projects=[project])
+    rows = re.findall(r"<tr.*?</tr>", _budget_rows([team]))
+    assert [len(re.findall(r"<td", row)) for row in rows] == [10, 10, 10]
+    assert rows[2].startswith('<tr data-team="t"><td>t</td><td>p</td><td>implement</td><td>-</td>')

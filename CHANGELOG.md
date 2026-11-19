@@ -7,8 +7,15 @@ is called out here.
 
 ## [Unreleased]
 
-Schema revisions `0004` and `0005`: run `llm-finops-gateway ledger migrate` on an existing database before
-starting this version.
+## [0.5.0] - 2026-11-19
+
+The Copilot release: GitHub Copilot (VS Code and CLI) behind the LiteLLM plugin on the Responses
+route, rules and a budget per use case so each phase of a development cycle gets its model, a
+run id that ties the calls of one feature together, reports by use case and by run, and model
+aliases. Schema revisions `0004` and `0005`: existing databases need
+`llm-finops-gateway ledger migrate` once before this version starts.
+
+LiteLLM plugin users should upgrade: see Security below.
 
 ### Added
 - Model aliases: a price book row `{ alias_of: <row> }` is a name clients may call that is
@@ -29,7 +36,6 @@ starting this version.
 - LiteLLM plugin: the OpenAI Responses route (`/v1/responses`) runs the same attribution, price
   book, policy and budget steps as chat completions and `/v1/messages`, and settles from the
   success event. GitHub Copilot CLI was measured behind the plugin on both wire APIs (ADR-0029).
-  Before, a Responses call passed through the plugin without an owner, a price or a budget.
 
 ### Changed
 - README images: the report page and the report inside the LiteLLM dashboard retaken with use
@@ -45,6 +51,12 @@ starting this version.
   editor that prints only the message shows the reason. The bare code moved to
   `provider_specific_fields.code`; a client that compared `error.message` with the code must
   read it there. Status codes and the gateway's own rejections are unchanged (ADR-0034).
+
+### Security
+- LiteLLM plugin: a call to `/v1/responses` no longer passes without an owner, a price or a
+  budget. Up to 0.4.2 a client of a proxy with the plugin could spend outside its team's budget
+  by choosing that route, and the call left no ledger row. The gateway's own endpoints were not
+  affected (ADR-0029).
 
 ## [0.4.2] - 2026-11-18
 
@@ -334,7 +346,8 @@ First public release.
   results, comparison with existing gateways, ADRs 0001 to 0009, CONTRIBUTING, GOVERNANCE,
   CODE_OF_CONDUCT, SECURITY, CLA, MAINTAINERS.
 
-[Unreleased]: https://github.com/andrasKelle/llm-finops-gateway/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/andrasKelle/llm-finops-gateway/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/andrasKelle/llm-finops-gateway/releases/tag/v0.5.0
 [0.4.2]: https://github.com/andrasKelle/llm-finops-gateway/releases/tag/v0.4.2
 [0.4.1]: https://github.com/andrasKelle/llm-finops-gateway/releases/tag/v0.4.1
 [0.4.0]: https://github.com/andrasKelle/llm-finops-gateway/releases/tag/v0.4.0

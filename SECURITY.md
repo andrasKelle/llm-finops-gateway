@@ -4,8 +4,8 @@
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 0.2.x   | yes (current)      |
-| 0.1.x   | no                 |
+| 0.5.x   | yes (current)      |
+| < 0.5   | no                 |
 
 Until 1.0 only the latest minor release receives fixes.
 

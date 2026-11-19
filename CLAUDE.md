@@ -8,7 +8,7 @@ private.
 `llm-finops-gateway`: an OpenAI-compatible LLM gateway that makes every call attributable
 (team + project, optional use case), prices it from a versioned price book, enforces per-team
 budgets and rate limits as code, and exposes cost and policy data to Prometheus / OpenTelemetry.
-Apache-2.0, maintained by András Kelle (`andrasKelle`). Version `0.4.2` (2026-11-18), first commit pushed
+Apache-2.0, maintained by András Kelle (`andrasKelle`). Version `0.5.0` (2026-11-19), first commit pushed
 2026-10-28, public since 2026-11-13.
 
 Audience: platform / FinOps teams that put the gateway in front of Azure OpenAI, Ollama (on-prem)
@@ -261,6 +261,11 @@ Fixed and merged on 2026-10-28 (PRs #6 and #8), all green since:
 - `v0.4.2` (2026-11-18): the report page's budgets table per team, project and model with the
   reservation cap in the policy table (PR #78, the first outside contribution), aligned rows
   when sorting, retaken README images. No schema revision.
+- `v0.5.0` (2026-11-19): the Copilot release (ADRs 0029 to 0034: Responses route in the plugin,
+  run id, use case rules, reports by use case and run, model aliases, rejections that name
+  their reason on every plugin route; PRs #88 to #94). Schema revisions 0004 and 0005, so
+  `ledger migrate` is needed; the Azure apps stay on `v0.4.2` (schema 0003) until that has run
+  there.
 
 Repository settings: Workflow permissions "Read and write" (needed by `cla` and `release`);
 automatic deletion of merged head branches is on; Discussions, topics, Dependabot alerts and

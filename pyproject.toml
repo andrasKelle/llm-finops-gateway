@@ -1,6 +1,6 @@
 [project]
 name = "llm-finops-gateway"
-version = "0.4.2"
+version = "0.5.0"
 description = "OpenAI-compatible LLM gateway with cost attribution, policy guardrails and observability."
 readme = "README.md"
 license = { text = "Apache-2.0" }

@@ -26,10 +26,16 @@ all-teams view. Rotate and disable it like any other key.
 Open `http://<gateway>/finops` in a browser. In `api_key` mode it asks for a key once and keeps
 it in an HttpOnly session cookie; `/finops/logout` clears it. The page shows:
 
-- budgets per team: spent, limit, used %, warn and block thresholds, enforcement, requests per
-  minute, allowed models;
-- the chargeback table (team, project, model, calls, tokens, cost) and the total;
+- budgets, one row per scope (team, project, use case, model): spent, limit, used %, warn and
+  block thresholds, enforcement, requests per minute, allowed models;
+- the chargeback table (team, project, use case, model, calls, tokens, cost) and the total;
+- the runs that sent an `X-Run-Id`, most expensive first; a run links to the page for that run
+  alone (`/finops?run_id=...`), which is the cost of one feature split by phase and model;
 - price book version and currency, policy version, configured providers, gateway version.
+
+One run, here a feature planned on Opus, implemented on Sonnet and reviewed on Haiku:
+
+![The chargeback of one run](images/finops-report-run.png)
 
 The default view is server-rendered; a few hundred lines of inline JavaScript (no build step,
 no external files) add: sorting on any column, a text filter per table, a team selector (all
@@ -40,6 +46,10 @@ the defaults row, the raw `policies.yaml`, and prices per 1M tokens. Selections 
 the browser's local storage.
 
 ## Spreadsheets and BI tools
+
+`GET /v1/finops/summary` and `/v1/finops/summary.csv` group by team, project and model. Add
+`group_by=use_case` and `group_by=run_id` to split the rows further, and `run_id=<id>` to keep
+one run (ADR-0032); without these parameters the output is unchanged.
 
 `GET /v1/finops/export.focus.csv?from=2026-11-01&to=2026-12-01` returns the ledger in the
 FinOps Open Cost and Usage Specification (FOCUS) format, one row per team, project, use case,

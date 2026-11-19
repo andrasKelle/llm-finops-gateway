@@ -1,0 +1,34 @@
+# Policies for the Copilot example. The team name must match the team_alias of the LiteLLM team
+# that issues the developers' keys.
+version: "2026-11-19"
+
+defaults:
+  allowed_models: ["claude-sonnet-5-5", "claude-haiku-5-5"]
+  budget:
+    monthly_usd: 50
+    warn_at: 0.8
+    block_at: 1.0
+    enforcement: block
+
+teams:
+  dev:
+    allowed_models: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"]
+    budget:
+      monthly_usd: 300
+      warn_at: 0.8
+      block_at: 1.0
+      # Copilot sends no max_tokens: this is the output a call in flight reserves.
+      reserve_output_tokens: 4000
+    model_budgets:
+      claude-opus-5-5: { monthly_usd: 150 }
+    # Registry (ADR-0021): X-Project must be one of these, usually the repository name.
+    projects:
+      my-repo:
+        # One use case per phase of the development cycle, each with the model it may use
+        # (ADR-0031). The phase arrives as X-Use-Case, or from the key's metadata.
+        use_cases:
+          plan: { allowed_models: ["claude-opus-5-5"] }
+          implement:
+            allowed_models: ["claude-sonnet-5-5"]
+            budget: { monthly_usd: 100 }
+          tasks: { allowed_models: ["claude-haiku-5-5"] }

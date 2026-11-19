@@ -222,6 +222,7 @@ th { border-bottom: 2px solid #999; font-weight: 600; white-space: nowrap; } td 
 th[data-key] { cursor: pointer; user-select: none; } th[data-key]:after { content: " \\2195"; color: var(--muted); font-size: 11px; }
 th.asc:after { content: " \\2191"; } th.desc:after { content: " \\2193"; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; } td.used { white-space: nowrap; }
+td.id, .nw { white-space: nowrap; } td.status small { display: block; margin-top: 2px; }
 .level { padding: 1px 8px; border-radius: 10px; color: #fff; font-size: 12px; }
 .ok { background: var(--ok); } .warn { background: var(--warn); } .block { background: var(--block); }
 .bar { background: var(--line); height: 8px; border-radius: 4px; width: 160px; display: inline-block; vertical-align: middle; margin-right: 8px; }
@@ -377,9 +378,14 @@ def _budget_cells(b: BudgetEnvelope | None) -> str:
     return (
         f"{_amt(b.spent_usd)}{_amt(b.limit_usd)}"
         f'<td class="used" data-v="{_e(b.used_pct)}">{bar}{_e(b.used_pct)} %</td>'
-        f'<td data-v="{b.level}"><span class="level {b.level}">{b.level}</span> '
+        f'<td class="status" data-v="{b.level}"><span class="level {b.level}">{b.level}</span> '
         f"<small>{_enforcement_note(b.warn_at_pct, b.block_at_pct, b.enforcement)}</small></td>"
     )
+
+
+def _models(names: list[str]) -> str:
+    """A list of model names that wraps between the names, never inside one."""
+    return ", ".join(f'<span class="nw">{_e(n)}</span>' for n in names) or "-"
 
 
 def _budget_rows(rows: list[TeamBudgetRow]) -> str:
@@ -392,11 +398,11 @@ def _budget_rows(rows: list[TeamBudgetRow]) -> str:
         rate: int | None = None,
         use_case: str = "-",
     ) -> str:
+        ids = "".join(f'<td class="id">{_e(v)}</td>' for v in (team, project, use_case, model))
         return (
-            f'<tr data-team="{_e(team)}"><td>{_e(team)}</td><td>{_e(project)}</td>'
-            f"<td>{_e(use_case)}</td><td>{_e(model)}</td>{_budget_cells(budget)}"
+            f'<tr data-team="{_e(team)}">{ids}{_budget_cells(budget)}'
             f'<td class="num">{rate if rate is not None else "-"}</td>'
-            f"<td>{_e(', '.join(allowed_models))}</td></tr>"
+            f"<td>{_models(allowed_models)}</td></tr>"
         )
 
     body = []
@@ -405,23 +411,21 @@ def _budget_rows(rows: list[TeamBudgetRow]) -> str:
             render(row.team, "-", "-", row.budget, row.allowed_models, row.requests_per_minute)
         )
         for model, budget in (row.model_budgets or {}).items():
-            body.append(render(row.team, "-", model, budget, ["-"]))
+            body.append(render(row.team, "-", model, budget, []))
         for project in row.projects or []:
             body.append(
                 render(row.team, project.project, "-", project.budget, project.allowed_models)
             )
             for model, budget in (project.model_budgets or {}).items():
-                body.append(render(row.team, project.project, model, budget, ["-"]))
+                body.append(render(row.team, project.project, model, budget, []))
             for use_case, budget in (project.use_case_budgets or {}).items():
-                body.append(
-                    render(row.team, project.project, "-", budget, ["-"], use_case=use_case)
-                )
+                body.append(render(row.team, project.project, "-", budget, [], use_case=use_case))
     return "".join(body) or '<tr><td colspan="10">no teams yet</td></tr>'
 
 
 def _policy_table(rows: list[PolicyRow]) -> str:
     body = "".join(
-        f"<tr><td>{_e(r.team)}</td><td>{_e(', '.join(r.allowed_models))}</td>"
+        f"<tr><td>{_e(r.team)}</td><td>{_models(r.allowed_models)}</td>"
         f"{_amt(r.monthly)}"
         f'<td class="num">{_e(r.warn_pct) if r.warn_pct else "-"}</td>'
         f'<td class="num">{_e(r.block_pct) if r.block_pct else "-"}</td>'
@@ -472,7 +476,9 @@ def render_report(ctx: ReportContext) -> str:
     )
     filter_note = f" for team <b>{_e(ctx.team_filter)}</b>" if ctx.team_filter else ""
     if ctx.run_filter:
-        filter_note += f' for run <b>{_e(ctx.run_filter)}</b> (<a href="?">all runs</a>)'
+        filter_note += (
+            f' for run <b>{_e(ctx.run_filter)}</b> <small><a href="?">all runs</a></small>'
+        )
     run_rows = "".join(
         f'<tr><td><a href="?run_id={quote(r.run_id, safe="")}">{_e(r.run_id)}</a></td>'
         f'<td class="num">{r.calls}</td>{_amt(r.cost)}</tr>'

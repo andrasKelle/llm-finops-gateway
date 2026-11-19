@@ -28,7 +28,9 @@ This replaces the last sentence of the rejection bullet in ADR-0027.
 
 ## Consequences
 
-- VS Code and every client that prints the error message show the reason of a block.
+- VS Code and every client that prints the error message show the reason of a block. Checked
+  in VS Code after the change: `502 model_not_allowed: model 'claude-haiku-5-5' is not allowed
+  for use case 'plan' of project 'my-repo' (allowed: claude-opus-5-5)`.
 - A client of the LiteLLM proxy that compares `error.message` with a bare code must read
   `provider_specific_fields.code` instead, or match the prefix up to the colon. This is a
   behaviour change of the plugin on chat completions, noted in the changelog.

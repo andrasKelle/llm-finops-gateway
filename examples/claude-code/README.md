@@ -91,6 +91,21 @@ rate from the price book row:
 `input_tokens` is the whole prompt. Claude Code caches aggressively, so most of a session is
 billed at the cache-read price; the ledger shows that split per call.
 
+## Phases and runs
+
+`ANTHROPIC_CUSTOM_HEADERS` takes several headers, one per line. A use case and a run id next
+to the project record which phase of the work a session belongs to and which feature:
+
+```bash
+export ANTHROPIC_CUSTOM_HEADERS="X-Project: my-repo
+X-Use-Case: implement
+X-Run-Id: feature/142-express-checkout"
+```
+
+A project can give each use case its own model list and budget (`use_cases` as a mapping in
+`policies.yaml`, ADR-0031), and the report page shows the cost of one run split by use case and
+model (ADR-0030, ADR-0032). The headers are fixed for a session, so a phase is a session here.
+
 ## Good to know
 
 - **The reservation is capped in `policies.yaml`, because Claude Code asks for 128,000

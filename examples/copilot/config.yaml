@@ -1,0 +1,19 @@
+# LiteLLM proxy config for GitHub Copilot behind the FinOps plugin (ADR-0029).
+# `model_name` is the id the Copilot client sends and the row name in the price book; the plugin
+# rejects a model that has no row (422), so add both when you add a model.
+model_list:
+  - model_name: claude-opus-5-5
+    litellm_params: { model: anthropic/claude-opus-5-5, api_key: os.environ/ANTHROPIC_API_KEY }
+  - model_name: claude-sonnet-5-5
+    litellm_params: { model: anthropic/claude-sonnet-5-5, api_key: os.environ/ANTHROPIC_API_KEY }
+  - model_name: claude-haiku-5-5
+    litellm_params: { model: anthropic/claude-haiku-5-5, api_key: os.environ/ANTHROPIC_API_KEY }
+
+litellm_settings:
+  callbacks: [llm_finops_gateway.litellm_plugin.plugin]
+  # Copilot sends OpenAI-only parameters (prompt_cache_key on the Responses API); without this
+  # LiteLLM refuses the call when the model is not an OpenAI one.
+  drop_params: true
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY

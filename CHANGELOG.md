@@ -32,6 +32,14 @@ starting this version.
   Before, a Responses call passed through the plugin without an owner, a price or a budget.
 
 ### Changed
+- README images: the report page and the report inside the LiteLLM dashboard retaken with use
+  case rules, a use case budget and runs, on real GPT and Claude traffic; the LiteLLM diagram
+  names `/v1/responses` and Copilot; `docs/reporting.md` shows the chargeback of one run.
+- The report tables no longer break a team, project, use case or model name in the middle, and
+  a budget's status note sits under its badge.
+- `examples/copilot/`: a compose stack, policies with a use case per phase, and the client
+  settings for VS Code and Copilot CLI; `examples/claude-code/` shows the use case and run id
+  headers; the test plan has section 4c for Copilot.
 - LiteLLM plugin, chat completions: a rejection's message is now `code: explanation`
   (`budget_exceeded: team 'dev' has used ...`), as on `/v1/messages` and `/v1/responses`, so an
   editor that prints only the message shows the reason. The bare code moved to

@@ -38,7 +38,7 @@ the actual cost and the ledger row in one transaction; step 6 re-reads the count
 response reflects the state including this call. Prometheus counters and the OpenTelemetry
 span are updated along the way (`metrics.py`, `telemetry.py`).
 
-A rendered version of this flow is in `images/architecture.svg`; the same rules inside a LiteLLM proxy (ADR-0019) are drawn in `images/architecture-litellm.svg`. Both are drawn by `images/diagrams.py`. Around the request path:
+A rendered version of this flow is in `images/architecture.svg`; the same rules inside a LiteLLM proxy (ADR-0019), on `/v1/chat/completions`, `/v1/messages` and `/v1/responses`, are drawn in `images/architecture-litellm.svg`. Both are drawn by `images/diagrams.py`. Around the request path:
 `/finops` (HTML), `/v1/finops/summary(.csv)` and `/v1/finops/budgets` read the ledger behind one
 access rule (ADR-0016); `/metrics` and OpenTelemetry spans are written along the way; webhook
 alerts fire on budget warn/block and upstream failures (ADR-0017); `pricing sync` keeps the price
@@ -53,7 +53,7 @@ book at Azure's list prices offline (ADR-0013).
 | `auth.py`                   | `KeyRing`, SHA-256 key hashes, `generate_key()` (ADR-0006)              |
 | `attribution.py`            | Key or header resolution into an `Attribution` value object (ADR-0003, 0006) |
 | `pricing.py`                | `PriceBook` loaded from versioned YAML; exact `Decimal` cost (ADR-0002) |
-| `policy.py`                 | `PolicySet` from YAML, `PolicyEngine.check()`: allow-list, rate limit, reservation (ADR-0005, 0007, 0008) |
+| `policy.py`                 | `PolicySet` from YAML, `PolicyEngine.check()`: registry, allow-lists (team, project, use case), rate limit, reservations (ADR-0005, 0007, 0008, 0021, 0025, 0031) |
 | `metrics.py`                | Prometheus registry per app instance, `/metrics`                        |
 | `telemetry.py`              | Optional OpenTelemetry provider, `finops.*` span attributes             |
 | `ledger.py`                 | `CostRecord` and `BudgetCounter` tables; record/settle, reserve, release, summary |

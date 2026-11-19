@@ -431,6 +431,7 @@ def create_app(
                     cost_usd=cost,
                     price_book_version=book.version,
                     key_id=attr.key_id,
+                    run_id=attr.run_id,
                 ),
                 release_reserved=decision.reserved_usd,
                 project_reserved=project_reserved,
@@ -481,6 +482,7 @@ def create_app(
                 use_case=attr.use_case,
                 provider=provider.name,
                 key_id=attr.key_id,
+                run_id=attr.run_id,
                 policy=PolicyEnvelope(
                     version=engine.version,
                     budget=_budget_envelope(status),
@@ -511,6 +513,7 @@ def create_app(
                 ),
             )
 
+        run_headers = {"X-FinOps-Run-Id": attr.run_id} if attr.run_id else {}
         if req.stream:
             # Streaming (ADR-0012): the policy decision above already holds; cost is settled
             # from the final usage chunk and travels in the last event, not in headers.
@@ -598,7 +601,11 @@ def create_app(
             return StreamingResponse(
                 events(),
                 media_type="text/event-stream",
-                headers={"X-FinOps-Request-Id": request_id, "Cache-Control": "no-cache"},
+                headers={
+                    "X-FinOps-Request-Id": request_id,
+                    "Cache-Control": "no-cache",
+                    **run_headers,
+                },
             )
 
         started = time.perf_counter()
@@ -631,6 +638,7 @@ def create_app(
         response.headers.update(
             cost_headers(request_id, cost, book.currency, result.cached_input_tokens)
         )
+        response.headers.update(run_headers)
 
         return ChatResponse(
             id=request_id,

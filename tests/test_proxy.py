@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import tomllib
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -27,7 +28,7 @@ def test_healthz(client: TestClient) -> None:
     # the string in __init__.py is bumped by hand; it must match the version in pyproject.toml
     pyproject = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
     assert r.json()["version"] == pyproject["project"]["version"]
-    assert r.json()["schema"] == r.json()["schema_head"] == "0003"
+    assert r.json()["schema"] == r.json()["schema_head"] == "0004"
 
 
 def test_models_lists_price_book(client: TestClient) -> None:
@@ -403,3 +404,28 @@ def test_currency_is_reported_in_body_and_header(client: TestClient) -> None:
     r = client.post("/v1/chat/completions", json=BODY, headers=ATTR_HEADERS)
     assert r.json()["x_finops"]["currency"] == "USD"
     assert r.headers["X-FinOps-Currency"] == "USD"
+
+
+def test_run_id_is_stored_and_echoed(client: TestClient, ledger: Ledger) -> None:
+    with_run = {**ATTR_HEADERS, "X-Run-Id": "spec-42"}
+    r = client.post("/v1/chat/completions", json=BODY, headers=with_run)
+    assert r.status_code == 200, r.text
+    assert r.headers["X-FinOps-Run-Id"] == "spec-42"
+    assert r.json()["x_finops"]["run_id"] == "spec-42"
+
+    plain = client.post("/v1/chat/completions", json=BODY, headers=ATTR_HEADERS)
+    assert "X-FinOps-Run-Id" not in plain.headers
+    assert plain.json()["x_finops"]["run_id"] is None
+
+    stream = client.post("/v1/chat/completions", json={**BODY, "stream": True}, headers=with_run)
+    assert stream.headers["X-FinOps-Run-Id"] == "spec-42"
+    assert _events(stream.text)[-2]["x_finops"]["run_id"] == "spec-42"
+
+    now = datetime.now(UTC)
+    rows = ledger.rows(now - timedelta(hours=1), now + timedelta(hours=1))
+    assert [row.run_id for row in rows] == ["spec-42", None, "spec-42"]
+
+    too_long = client.post(
+        "/v1/chat/completions", json=BODY, headers={**ATTR_HEADERS, "X-Run-Id": "r" * 129}
+    )
+    assert too_long.status_code == 400 and "X-Run-Id" in too_long.text

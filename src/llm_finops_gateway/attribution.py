@@ -10,7 +10,8 @@ Design decision (ADR-0006): where the owner comes from depends on ``auth_mode``:
 * ``headers``: the team is taken from ``X-Team`` as declared. For development and networks
   where the caller is already authenticated upstream.
 
-``X-Project`` is always required; ``X-Use-Case`` is optional.
+``X-Project`` is always required; ``X-Use-Case`` is optional. ``X-Run-Id`` is optional free text
+(a branch, a pull request, a job id) that ties the calls of one run together (ADR-0030).
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ from fastapi import Header, HTTPException, Request
 from .auth import KeyRing
 
 _TAG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+RUN_ID_MAX = 128
 
 
 @dataclass(frozen=True)
@@ -32,6 +34,7 @@ class Attribution:
     project: str
     use_case: str = "unspecified"
     key_id: str | None = None
+    run_id: str | None = None
 
 
 def _validate_tag(name: str, value: str) -> str:
@@ -41,6 +44,17 @@ def _validate_tag(name: str, value: str) -> str:
             detail=f"{name} must match {_TAG_RE.pattern} (got {value!r})",
         )
     return value
+
+
+def _run_id(x_run_id: str | None) -> str | None:
+    """Free text, bounded in length only; absent or empty means no run."""
+    if not x_run_id:
+        return None
+    if len(x_run_id) > RUN_ID_MAX:
+        raise HTTPException(
+            status_code=400, detail=f"X-Run-Id must be at most {RUN_ID_MAX} characters"
+        )
+    return x_run_id
 
 
 def _require_project(x_project: str | None) -> str:
@@ -60,6 +74,7 @@ def attribution_from_headers(
     x_team: str | None,
     x_project: str | None,
     x_use_case: str | None,
+    x_run_id: str | None = None,
 ) -> Attribution:
     """``headers`` mode: the caller declares the team."""
     missing = [name for name, value in (("X-Team", x_team), ("X-Project", x_project)) if not value]
@@ -77,6 +92,7 @@ def attribution_from_headers(
         team=_validate_tag("X-Team", x_team),
         project=_validate_tag("X-Project", x_project),
         use_case=_validate_tag("X-Use-Case", x_use_case) if x_use_case else "unspecified",
+        run_id=_run_id(x_run_id),
     )
 
 
@@ -86,6 +102,7 @@ def attribution_from_api_key(
     x_team: str | None,
     x_project: str | None,
     x_use_case: str | None,
+    x_run_id: str | None = None,
 ) -> Attribution:
     """``api_key`` mode: the team comes from the key; headers may only narrow, never override."""
     if not authorization or not authorization.lower().startswith("bearer "):
@@ -129,6 +146,7 @@ def attribution_from_api_key(
         project=project,
         use_case=_validate_tag("X-Use-Case", x_use_case) if x_use_case else "unspecified",
         key_id=key.id,
+        run_id=_run_id(x_run_id),
     )
 
 
@@ -138,9 +156,12 @@ def resolve_attribution(
     x_team: Annotated[str | None, Header()] = None,
     x_project: Annotated[str | None, Header()] = None,
     x_use_case: Annotated[str | None, Header()] = None,
+    x_run_id: Annotated[str | None, Header()] = None,
 ) -> Attribution:
     """FastAPI dependency; picks the mode from app state."""
     if request.app.state.settings.auth_mode == "api_key":
         keyring: KeyRing = request.app.state.keyring
-        return attribution_from_api_key(keyring, authorization, x_team, x_project, x_use_case)
-    return attribution_from_headers(x_team, x_project, x_use_case)
+        return attribution_from_api_key(
+            keyring, authorization, x_team, x_project, x_use_case, x_run_id
+        )
+    return attribution_from_headers(x_team, x_project, x_use_case, x_run_id)

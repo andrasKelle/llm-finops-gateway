@@ -1,4 +1,5 @@
-from datetime import UTC, datetime
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -150,3 +151,19 @@ def test_cli_export_writes_focus_csv(
     assert "wrote 1 FOCUS rows" in capsys.readouterr().err
     main(["ledger", "export", "--from", "2026-11-01", "--to", "2026-12-01"])
     assert capsys.readouterr().out.startswith("BilledCost,")
+
+
+def test_run_id_keeps_its_own_rows_and_travels_in_the_tags(ledger: Ledger) -> None:
+    day = datetime(2026, 11, 3, 9, 0, tzinfo=UTC)
+    ledger.record(replace(_entry(day, "platform", "demo", "m", "0.1", "a"), run_id="spec-42"))
+    ledger.record(replace(_entry(day, "platform", "demo", "m", "0.2", "b"), run_id="spec-42"))
+    ledger.record(_entry(day, "platform", "demo", "m", "0.4", "c"))
+    start, end = day - timedelta(days=1), day + timedelta(days=1)
+    rows = aggregate(ledger.rows(start, end))
+    assert sorted((r.run_id or "", r.calls, r.cost) for r in rows) == [
+        ("", 1, Decimal("0.4")),
+        ("spec-42", 2, Decimal("0.3")),
+    ]
+    text = focus_csv(ledger.rows(start, end), "USD", start, end)
+    assert text.count('""run_id"":""spec-42""') == 1  # in the Tags of the run's row only
+    assert text.count('""team"":""platform""') == 2

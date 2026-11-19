@@ -63,6 +63,8 @@ class CostRecord(Base):
     cache_write_1h_input_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     cost_usd: Mapped[Decimal] = mapped_column(Numeric(14, 8))
     price_book_version: Mapped[str] = mapped_column(String(32))
+    # the caller's X-Run-Id: the calls of one agent run or pipeline job (ADR-0030)
+    run_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
 
 
 class BudgetCounter(Base):
@@ -94,6 +96,7 @@ class CostEntry:
     cached_input_tokens: int = 0
     cache_write_input_tokens: int = 0
     cache_write_1h_input_tokens: int = 0
+    run_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -125,6 +128,7 @@ class LedgerRow:
     price_book_version: str
     cache_write_input_tokens: int = 0
     cache_write_1h_input_tokens: int = 0
+    run_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -207,6 +211,7 @@ class Ledger:
                     cache_write_1h_input_tokens=entry.cache_write_1h_input_tokens,
                     cost_usd=entry.cost_usd,
                     price_book_version=entry.price_book_version,
+                    run_id=entry.run_id,
                 )
             )
             scopes = [(entry.team, release_reserved)]
@@ -341,6 +346,7 @@ class Ledger:
                     price_book_version=r.price_book_version,
                     cache_write_input_tokens=r.cache_write_input_tokens,
                     cache_write_1h_input_tokens=r.cache_write_1h_input_tokens,
+                    run_id=r.run_id,
                 )
                 for r in records
             ]

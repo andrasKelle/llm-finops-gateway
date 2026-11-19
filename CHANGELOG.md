@@ -7,7 +7,13 @@ is called out here.
 
 ## [Unreleased]
 
+Schema revision `0004`: run `llm-finops-gateway ledger migrate` on an existing database before
+starting this version.
+
 ### Added
+- `X-Run-Id`: an optional request header that ties the calls of one agent run, pipeline job or
+  feature together. Stored in `cost_records.run_id`, echoed as `x_finops.run_id` and
+  `X-FinOps-Run-Id`, exported in the FOCUS `Tags` column; gateway and LiteLLM plugin (ADR-0030).
 - LiteLLM plugin: the OpenAI Responses route (`/v1/responses`) runs the same attribution, price
   book, policy and budget steps as chat completions and `/v1/messages`, and settles from the
   success event. GitHub Copilot CLI was measured behind the plugin on both wire APIs (ADR-0029).

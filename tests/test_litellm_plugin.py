@@ -752,3 +752,22 @@ async def test_responses_failure_releases_the_reservation(
     await plugin.async_log_failure_event({**kwargs, "exception": "boom"}, None, None, None)
     assert ledger.counter("customer-support").reserved_usd == 0
     assert ledger.counter("customer-support").spent_usd == 0
+
+
+async def test_run_id_header_reaches_the_ledger_and_the_response(
+    plugin: FinOpsPlugin, ledger: Ledger
+) -> None:
+    data = request()
+    data["proxy_server_request"]["headers"]["x-run-id"] = "spec-42"
+    data = await plugin.async_pre_call_hook(key(), None, data, "acompletion") or {}
+    headers = await plugin.async_post_call_response_headers_hook(data, key(), response())
+    assert headers is not None and headers["X-FinOps-Run-Id"] == "spec-42"
+    now = datetime.now(UTC)
+    (row,) = ledger.rows(now - timedelta(hours=1), now + timedelta(hours=1))
+    assert row.run_id == "spec-42"
+
+    long = request()
+    long["proxy_server_request"]["headers"]["x-run-id"] = "r" * 129
+    with pytest.raises(HTTPException) as exc:
+        await plugin.async_pre_call_hook(key(), None, long, "acompletion")
+    assert exc.value.status_code == 400

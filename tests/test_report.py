@@ -262,7 +262,16 @@ def test_budget_rows_keep_their_columns_and_name_a_model_once() -> None:
     assert "colspan" not in "".join(rows) and rows[0].count("no budget") == 1
     # a model budget's row names its model in the model column only
     assert rows[1].count("m-1") == 1 and rows[1].endswith("<td>-</td></tr>")
-    assert rows[0].endswith("<td>m-1, m-2</td></tr>") and rows[2].endswith("<td>m-2</td></tr>")
+    # names never break in the middle: a list of models wraps between the names only
+    assert rows[0].endswith(
+        '<td><span class="nw">m-1</span>, <span class="nw">m-2</span></td></tr>'
+    )
+    assert rows[2].endswith('<td><span class="nw">m-2</span></td></tr>')
+    assert rows[0].startswith('<tr data-team="t"><td class="id">t</td><td class="id">-</td>')
+    from llm_finops_gateway.report import _STYLE
+
+    assert "td.id, .nw { white-space: nowrap; }" in _STYLE
+    assert '<td class="status" data-v="ok">' in rows[1]  # the note sits under the badge
 
 
 def _run_entry(rid: str, team: str, use_case: str, run_id: str | None, cost: str) -> CostEntry:
@@ -347,7 +356,7 @@ def test_report_page_shows_use_cases_runs_and_one_run(runs_client: TestClient) -
     assert 'href="?run_id=spec%20%3C42%3E"' in runs and 'data-amt="0.5"' in runs
 
     one = runs_client.get("/finops", params={"run_id": "spec <42>"}, headers=auth).text
-    assert "run <b>spec &lt;42&gt;</b>" in one
+    assert 'run <b>spec &lt;42&gt;</b> <small><a href="?">all runs</a></small>' in one
     rows = one.split('id="chargeback"', 1)[1].split("</tbody>", 1)[0]
     assert len(re.findall(r"<tr data-team=", rows)) == 2 and "research" not in rows
     assert 'id="total" data-amt="0.5"' in one
@@ -378,4 +387,7 @@ def test_budget_table_has_a_row_per_use_case_budget() -> None:
     team = TeamBudgetRow(team="t", allowed_models=["m-1"], budget=None, projects=[project])
     rows = re.findall(r"<tr.*?</tr>", _budget_rows([team]))
     assert [len(re.findall(r"<td", row)) for row in rows] == [10, 10, 10]
-    assert rows[2].startswith('<tr data-team="t"><td>t</td><td>p</td><td>implement</td><td>-</td>')
+    assert rows[2].startswith(
+        '<tr data-team="t"><td class="id">t</td><td class="id">p</td>'
+        '<td class="id">implement</td><td class="id">-</td>'
+    )

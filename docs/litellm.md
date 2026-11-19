@@ -29,15 +29,16 @@ that installs the package into the official LiteLLM image, and `demo.sh`.
 
 ## What it does per chat call
 
-The same steps run for `/v1/chat/completions` and for the Anthropic `/v1/messages` route,
-which is what Claude Code calls (ADR-0027; a ready stack is in `examples/claude-code/`).
+The same steps run for `/v1/chat/completions`, for the Anthropic `/v1/messages` route, which
+is what Claude Code calls (ADR-0027; a ready stack is in `examples/claude-code/`), and for the
+OpenAI Responses route `/v1/responses`, which GitHub Copilot can call (ADR-0029).
 
 | Step | LiteLLM hook | Behaviour |
 | --- | --- | --- |
 | Attribution | `async_pre_call_hook` | Team = the `team_alias` of the LiteLLM team the key belongs to; project from `X-Project`, use case from `X-Use-Case`, falling back to the key's metadata (`{"finops": {"project": ..., "use_case": ...}}` on `/key/generate`). A key without a team, or a call without a project from either source: `400 missing_attribution`, before the call |
 | Price | same hook | Model not in the price book: `422`, before the call. LiteLLM's own cost map is not consulted |
 | Policy | same hook | Project registry (`403 project_not_registered`, `403 use_case_not_registered`), allow-list, rate limit (`429` with `Retry-After`) and the atomic team, project and model budget reservations (`403 budget_exceeded`, or a warning at the warn threshold), exactly as in the gateway |
-| Settle | `async_post_call_response_headers_hook` (non-streaming chat completions) or `async_log_success_event` (streaming, and every `/v1/messages` call) | Usage from the response, cost from the price book with cache reads and cache writes at their own prices, one ledger row and the reservation settled in one transaction |
+| Settle | `async_post_call_response_headers_hook` (non-streaming chat completions) or `async_log_success_event` (streaming, and every `/v1/messages` and `/v1/responses` call) | Usage from the response, cost from the price book with cache reads and cache writes at their own prices, one ledger row and the reservation settled in one transaction |
 | Release | `async_log_failure_event` | The reservation is given back when the upstream call fails |
 
 On `/v1/messages` the project and use case come from the same headers (Claude Code sends
@@ -45,10 +46,16 @@ them through `ANTHROPIC_CUSTOM_HEADERS`), a rejection carries its explanation in
 message (`budget_exceeded: team 'dev' has used ...`, the bare code in `code`), and
 `/v1/messages/count_tokens` passes through without the plugin.
 
+On `/v1/responses` the estimate reads `input`, `instructions`, `tools` and `max_output_tokens`,
+and a rejection carries its explanation the same way. GitHub Copilot CLI sends no custom
+headers, so give its LiteLLM key the project and the use case in the key metadata; VS Code's
+Custom Endpoint provider can set `X-Project` and `X-Use-Case` per model with `requestHeaders`.
+Other call types (embeddings, images, audio) pass through without the plugin.
+
 Headers on every settled non-streaming response: `X-FinOps-Request-Id` (prefix `lt-`),
 `X-FinOps-Cost-USD`, `X-FinOps-Currency`, `X-FinOps-Cached-Input-Tokens`, `X-FinOps-Budget-*`,
 `X-FinOps-Warning`. Streamed
-responses and `/v1/messages` responses carry the request id and the budget state as of the
+responses, `/v1/messages` and `/v1/responses` responses carry the request id and the budget state as of the
 start of the call; their cost
 is settled when the stream ends and is visible in the ledger and the report page. The response
 body is never modified: there is no `x_finops` block in LiteLLM mode.

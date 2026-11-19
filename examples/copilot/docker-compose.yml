@@ -1,0 +1,55 @@
+# GitHub Copilot behind LiteLLM with the FinOps plugin (ADR-0029).
+#
+#   cd examples/copilot
+#   ANTHROPIC_API_KEY=sk-ant-... docker compose up -d --build
+#
+#   litellm  port 4003, the proxy with the plugin: the endpoint Copilot is pointed at
+#   report   port 8083, the gateway's /finops page over the plugin's ledger
+# The master key, the salt key and the database password default to local-only demo values.
+services:
+  litellm:
+    build:
+      context: ../..
+      dockerfile: examples/litellm/Dockerfile
+    image: litellm-finops:dev
+    ports: ["4003:4000"]
+    depends_on: [db]
+    environment:
+      DATABASE_URL: postgresql://litellm:${LITELLM_DB_PASSWORD:-litellm}@db:5432/litellm
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-lfg-master-local-only}
+      LITELLM_SALT_KEY: ${LITELLM_SALT_KEY:-sk-lfg-salt-local-only}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      LFG_PRICING_PATH: /app/finops-config/pricing.yaml
+      LFG_POLICIES_PATH: /app/finops-example/policies.yaml
+      LFG_DATABASE_URL: sqlite:////data/finops.db
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      # directories, not single files, so that an edit is picked up without a restart
+      - ../../config:/app/finops-config:ro
+      - .:/app/finops-example:ro
+      - ledger:/data
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+  report:
+    build:
+      context: ../..
+    image: llm-finops-gateway:dev
+    ports: ["8083:8080"]
+    depends_on: [litellm]
+    environment:
+      LFG_AUTH_MODE: headers
+      LFG_PRICING_PATH: /app/finops-config/pricing.yaml
+      LFG_POLICIES_PATH: /app/finops-example/policies.yaml
+      LFG_DATABASE_URL: sqlite:////data/finops.db
+    volumes:
+      - ../../config:/app/finops-config:ro
+      - .:/app/finops-example:ro
+      - ledger:/data
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: litellm
+      POSTGRES_PASSWORD: ${LITELLM_DB_PASSWORD:-litellm}
+      POSTGRES_DB: litellm
+
+volumes:
+  ledger:

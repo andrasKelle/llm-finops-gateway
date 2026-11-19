@@ -37,7 +37,8 @@ It runs in two shapes. Standalone, the gateway is the front door your applicatio
 Already on LiteLLM? The same rules run inside the LiteLLM proxy as a callback plugin, with
 the same price book, policy file, ledger and reports; no second proxy (ADR-0019). Claude Code
 and other Anthropic Messages clients go through it too, priced with their cache reads and
-cache writes (ADR-0027):
+cache writes (ADR-0027), and so does GitHub Copilot through its custom endpoint settings
+(ADR-0029):
 
 ![The FinOps plugin inside LiteLLM](https://raw.githubusercontent.com/andrasKelle/llm-finops-gateway/main/docs/images/architecture-litellm.svg)
 
@@ -93,6 +94,11 @@ Every call of a session is attributed to the team and the project, priced with c
 and cache writes at their own rates, and checked against the team's, the project's and the
 model's budget before it is sent; a rejection shows up in Claude Code with its reason. Stack
 and walk-through: [examples/claude-code/](examples/claude-code/).
+
+GitHub Copilot works the same way through its custom endpoint settings, in VS Code and in
+Copilot CLI, on chat completions and on the Responses API (ADR-0029). A phase of the
+development cycle is a use case with its own model list and budget, and a run id ties the
+calls of one feature together: [examples/copilot/](examples/copilot/).
 
 ## Try it from a browser
 

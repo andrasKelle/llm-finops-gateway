@@ -1,0 +1,40 @@
+[
+  {
+    "name": "FinOps gateway",
+    "vendor": "customendpoint",
+    "apiKey": "${input:finopsGatewayKey}",
+    "apiType": "chat-completions",
+    "models": [
+      {
+        "id": "claude-opus-5-5",
+        "name": "Plan (Opus)",
+        "url": "http://localhost:4003/v1/chat/completions",
+        "toolCalling": true,
+        "vision": false,
+        "maxInputTokens": 128000,
+        "maxOutputTokens": 16000,
+        "requestHeaders": { "X-Project": "my-repo", "X-Use-Case": "plan" }
+      },
+      {
+        "id": "claude-sonnet-5-5",
+        "name": "Implement (Sonnet)",
+        "url": "http://localhost:4003/v1/chat/completions",
+        "toolCalling": true,
+        "vision": false,
+        "maxInputTokens": 128000,
+        "maxOutputTokens": 16000,
+        "requestHeaders": { "X-Project": "my-repo", "X-Use-Case": "implement" }
+      },
+      {
+        "id": "claude-haiku-5-5",
+        "name": "Tasks (Haiku)",
+        "url": "http://localhost:4003/v1/chat/completions",
+        "toolCalling": true,
+        "vision": false,
+        "maxInputTokens": 128000,
+        "maxOutputTokens": 16000,
+        "requestHeaders": { "X-Project": "my-repo", "X-Use-Case": "tasks" }
+      }
+    ]
+  }
+]

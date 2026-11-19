@@ -76,16 +76,16 @@ LITELLM = Diagram(
     subtitle="LiteLLM stays the proxy; callback hooks add attribution, a price book, budgets, "
     "a ledger and the report. No second proxy.",
     core_title="LiteLLM proxy",
-    core_subtitle="/v1/chat/completions and /v1/messages; the plugin is a callback",
+    core_subtitle="/v1/chat/completions, /v1/messages, /v1/responses; the plugin is a callback",
     rows=[
-        ("pre-call hook", "team from the key; X-Project or metadata", "400"),
+        ("pre-call hook", "team from the key; project and use case", "400"),
         ("", "price book: unknown model fails", "422"),
-        ("", "registry, allow-list, rate limit, reserve", "403 / 429"),
+        ("", "registry, allow-lists, rate limit, reserve", "403 / 429"),
         ("LiteLLM routes", "Azure OpenAI, Anthropic, 100+ providers", ""),
         ("settle", "real usage, cache reads and writes; X-FinOps-* headers", ""),
     ],
     footer="failure hook: the reservation is released, nothing is billed",
-    app=("OpenAI SDK, Claude Code", "base_url = LiteLLM"),
+    app=("Claude Code, Copilot, SDKs", "base_url = LiteLLM"),
     sends=("virtual key", "X-Project"),
     provider="Azure | OpenAI | Anthropic | ...",
     boxes=[

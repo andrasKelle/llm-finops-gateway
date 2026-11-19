@@ -1,0 +1,22 @@
+{
+  "providers": [
+    {
+      "name": "plan",
+      "type": "openai",
+      "baseUrl": "http://localhost:4003/v1",
+      "apiKey": "PASTE-THE-PLAN-KEY",
+      "wireApi": "completions"
+    },
+    {
+      "name": "implement",
+      "type": "openai",
+      "baseUrl": "http://localhost:4003/v1",
+      "apiKey": "PASTE-THE-IMPLEMENT-KEY",
+      "wireApi": "completions"
+    }
+  ],
+  "models": [
+    { "id": "claude-opus-5-5", "provider": "plan" },
+    { "id": "claude-sonnet-5-5", "provider": "implement" }
+  ]
+}

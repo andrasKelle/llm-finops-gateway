@@ -11,6 +11,11 @@ Schema revision `0004`: run `llm-finops-gateway ledger migrate` on an existing d
 starting this version.
 
 ### Added
+- Rules per use case: `use_cases` may be a mapping whose entries narrow the model list
+  (`allowed_models`) and set a budget, reserved and settled next to the team, project and model
+  budgets under `team/project/use_case/<use_case>` and reported as
+  `x_finops.policy.use_case_budget`, `X-FinOps-Use-Case-Budget-*` and `use_case_budgets` in
+  `/v1/finops/budgets`. The list form of `use_cases` is unchanged (ADR-0031).
 - `X-Run-Id`: an optional request header that ties the calls of one agent run, pipeline job or
   feature together. Stored in `cost_records.run_id`, echoed as `x_finops.run_id` and
   `X-FinOps-Run-Id`, exported in the FOCUS `Tags` column; gateway and LiteLLM plugin (ADR-0030).

@@ -143,6 +143,7 @@ class PolicyEnvelope(BaseModel):
     budget: BudgetEnvelope | None = None
     project_budget: BudgetEnvelope | None = None
     model_budget: BudgetEnvelope | None = None  # the model budget that applied (ADR-0025)
+    use_case_budget: BudgetEnvelope | None = None  # the use case budget, if any (ADR-0031)
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -170,6 +171,7 @@ class ProjectBudgetRow(BaseModel):
     use_cases: list[str] | None = None
     budget: BudgetEnvelope | None
     model_budgets: dict[str, BudgetEnvelope] | None = None  # the project's own entries
+    use_case_budgets: dict[str, BudgetEnvelope] | None = None  # use cases with a budget
 
 
 class TeamBudgetRow(BaseModel):

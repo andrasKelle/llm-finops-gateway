@@ -74,6 +74,8 @@ class _Pending:
     project_reserved_usd: Decimal | None = None  # None: the project has no budget of its own
     model_scope: str | None = None  # counter key of the model budget that applied (ADR-0025)
     model_reserved_usd: Decimal = Decimal(0)
+    use_case_scope: str | None = None  # counter key of the use case budget (ADR-0031)
+    use_case_reserved_usd: Decimal = Decimal(0)
     created: float = field(default_factory=time.monotonic)
 
 
@@ -318,7 +320,7 @@ class FinOpsPlugin(CustomLogger):
             messages, item_chars = _responses_input(data.get("input"))
             max_tokens = data.get("max_output_tokens")
             extra_chars += item_chars + len(str(data.get("instructions") or ""))
-        cap = engine.reserve_output_cap(attr.team, attr.project, model)
+        cap = engine.reserve_output_cap(attr.team, attr.project, model, attr.use_case)
         estimate = estimate_cost(
             book, model, messages, max_tokens, reserve_output, extra_chars, cap
         )
@@ -342,6 +344,8 @@ class FinOpsPlugin(CustomLogger):
             decision.project_reserved_usd if decision.project_budget is not None else None,
             decision.model_scope,
             decision.model_reserved_usd,
+            decision.use_case_scope,
+            decision.use_case_reserved_usd,
         )
         meta_key = "litellm_metadata" if call_type in AGENT_CALL_TYPES else "metadata"
         data.setdefault(meta_key, {})[META] = {"request_id": request_id, "team": attr.team}
@@ -362,6 +366,8 @@ class FinOpsPlugin(CustomLogger):
             )
         if pending.model_scope is not None and pending.model_reserved_usd:
             ledger.release(pending.model_scope, pending.model_reserved_usd)
+        if pending.use_case_scope is not None and pending.use_case_reserved_usd:
+            ledger.release(pending.use_case_scope, pending.use_case_reserved_usd)
 
     # ---- step 4 and 5: settle, headers ------------------------------------------------
 
@@ -404,6 +410,8 @@ class FinOpsPlugin(CustomLogger):
             project_reserved=pending.project_reserved_usd,
             model_scope=pending.model_scope,
             model_reserved=pending.model_reserved_usd,
+            use_case_scope=pending.use_case_scope,
+            use_case_reserved=pending.use_case_reserved_usd,
         )
         log.info(
             "settled request_id=%s team=%s project=%s model=%s cost=%s litellm_cost=%s",
@@ -438,6 +446,10 @@ class FinOpsPlugin(CustomLogger):
     def _model_status(self, pending: _Pending) -> BudgetStatus | None:
         attr = pending.attr
         return self._ensure()[1].model_budget_status(attr.team, attr.project, pending.model)
+
+    def _use_case_status(self, pending: _Pending) -> BudgetStatus | None:
+        attr = pending.attr
+        return self._ensure()[1].use_case_budget_status(attr.team, attr.project, attr.use_case)
 
     @staticmethod
     def _meta(container: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -479,6 +491,7 @@ class FinOpsPlugin(CustomLogger):
                     pending.warnings,
                     self._project_status(pending),
                     self._model_status(pending),
+                    self._use_case_status(pending),
                 )
             )
         else:
@@ -486,9 +499,14 @@ class FinOpsPlugin(CustomLogger):
             warnings = pending.warnings if pending is not None else []
             project_status = self._project_status(pending) if pending is not None else None
             model_status = self._model_status(pending) if pending is not None else None
+            use_case_status = self._use_case_status(pending) if pending is not None else None
             headers.update(
                 budget_headers(
-                    engine.budget_status(str(meta["team"])), warnings, project_status, model_status
+                    engine.budget_status(str(meta["team"])),
+                    warnings,
+                    project_status,
+                    model_status,
+                    use_case_status,
                 )
             )
         return headers

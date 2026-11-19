@@ -405,6 +405,22 @@ holds only what pricing needs: team, project, use case, model, tokens, cost and 
 version. Prompts and completions are never stored. Teams without a `projects` map keep the
 free-text behaviour (ADR-0021).
 
+A use case can carry rules of its own (ADR-0031): write `use_cases` as a mapping, and an entry
+may narrow the model list and set a budget. This is how the phases of a development cycle get
+their own model and their own line:
+
+```yaml
+    projects:
+      checkout-web:
+        use_cases:
+          plan: { allowed_models: ["claude-opus-5-5"] }
+          implement: { allowed_models: ["claude-sonnet-5-5"], budget: { monthly_usd: 50 } }
+          tasks: {}                                                  # registered, no rules
+```
+
+The use case budget is reserved next to the others; its state travels as
+`x_finops.policy.use_case_budget` and the `X-FinOps-Use-Case-Budget-*` headers.
+
 ### Budgets per model
 
 A team or a project can cap one model next to its overall budget (ADR-0025):

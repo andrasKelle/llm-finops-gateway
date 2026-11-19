@@ -382,7 +382,7 @@ def create_app(
             req.output_limit,
             reserve_output,
             tool_chars,
-            engine.reserve_output_cap(attr.team, attr.project, req.model),
+            engine.reserve_output_cap(attr.team, attr.project, req.model, attr.use_case),
         )
         decision = engine.check(attr, req.model, estimate)
         if not decision.allowed:
@@ -437,6 +437,8 @@ def create_app(
                 project_reserved=project_reserved,
                 model_scope=decision.model_scope,
                 model_reserved=decision.model_reserved_usd,
+                use_case_scope=decision.use_case_scope,
+                use_case_reserved=decision.use_case_reserved_usd,
             )
             metrics.observe_cost(
                 attr.team, attr.project, req.model, cost, usage.input_tokens, usage.output_tokens
@@ -463,6 +465,8 @@ def create_app(
                 )
             if decision.model_scope is not None and decision.model_reserved_usd:
                 ledger.release(decision.model_scope, decision.model_reserved_usd)
+            if decision.use_case_scope is not None and decision.use_case_reserved_usd:
+                ledger.release(decision.use_case_scope, decision.use_case_reserved_usd)
 
         def on_upstream_failure(exc: BaseException) -> str:
             release_reservations()
@@ -491,6 +495,9 @@ def create_app(
                     ),
                     model_budget=_budget_envelope(
                         engine.model_budget_status(attr.team, attr.project, req.model)
+                    ),
+                    use_case_budget=_budget_envelope(
+                        engine.use_case_budget_status(attr.team, attr.project, attr.use_case)
                     ),
                     warnings=decision.warnings,
                 ),
@@ -633,6 +640,7 @@ def create_app(
                 decision.warnings,
                 engine.project_budget_status(attr.team, attr.project),
                 engine.model_budget_status(attr.team, attr.project, req.model),
+                engine.use_case_budget_status(attr.team, attr.project, attr.use_case),
             )
         )
         response.headers.update(
@@ -694,6 +702,12 @@ def create_app(
             return None
         return {m: BudgetEnvelope(**s.as_dict()) for m, s in states.items()}
 
+    def use_case_budget_envelopes(team: str, project: str) -> dict[str, BudgetEnvelope] | None:
+        states = engine.use_case_budget_states(team, project)
+        if states is None:
+            return None
+        return {u: BudgetEnvelope(**s.as_dict()) for u, s in states.items()}
+
     def budget_rows(team: str | None) -> list[TeamBudgetRow]:
         current: PolicySet = app.state.policies  # the version in service (ADR-0022)
         names = set(current.teams()) | {r.team for r in ledger.summary()}
@@ -715,9 +729,10 @@ def create_app(
                             if proj.allowed_models is not None
                             else effective.allowed_models
                         ),
-                        use_cases=proj.use_cases,
+                        use_cases=list(proj.use_cases) if proj.use_cases is not None else None,
                         budget=_budget_envelope(engine.project_budget_status(name, pname)),
                         model_budgets=model_budget_envelopes(name, pname),
+                        use_case_budgets=use_case_budget_envelopes(name, pname),
                     )
                     for pname, proj in effective.projects.items()
                 ]

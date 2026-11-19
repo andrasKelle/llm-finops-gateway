@@ -76,6 +76,23 @@ class RateLimitPolicy(BaseModel):
     requests_per_minute: int = Field(gt=0)
 
 
+class UseCasePolicy(BaseModel):
+    """Rules of one use case of a project (ADR-0031): a model list that narrows the team's and
+    the project's, and a budget of its own. An empty mapping only registers the name."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    allowed_models: list[str] | None = None
+    budget: BudgetPolicy | None = None
+
+    def allows_model(self, model: str) -> bool:
+        return (
+            self.allowed_models is None
+            or "*" in self.allowed_models
+            or model in self.allowed_models
+        )
+
+
 class ProjectPolicy(BaseModel):
     """A registered project of a team (ADR-0021). Everything is optional: an empty mapping
     registers the name and inherits the team's models and budget."""
@@ -84,7 +101,8 @@ class ProjectPolicy(BaseModel):
 
     allowed_models: list[str] | None = None
     budget: BudgetPolicy | None = None
-    use_cases: list[str] | None = None
+    # a list of names, or a mapping of names to their rules (ADR-0031)
+    use_cases: list[str] | dict[str, UseCasePolicy] | None = None
     model_budgets: dict[str, BudgetPolicy] | None = None
 
     def allows_model(self, model: str) -> bool:
@@ -96,6 +114,12 @@ class ProjectPolicy(BaseModel):
 
     def allows_use_case(self, use_case: str) -> bool:
         return self.use_cases is None or use_case in self.use_cases
+
+    def use_case(self, name: str) -> UseCasePolicy:
+        """The rules of a use case; empty when the project lists names only or none at all."""
+        if isinstance(self.use_cases, dict):
+            return self.use_cases.get(name) or UseCasePolicy()
+        return UseCasePolicy()
 
 
 class TeamPolicy(BaseModel):
@@ -184,6 +208,9 @@ class PolicyDecision:
     model_budget: BudgetStatus | None = None
     model_scope: str | None = None  # counter key of the model budget that applied (ADR-0025)
     model_reserved_usd: Decimal = Decimal(0)
+    use_case_budget: BudgetStatus | None = None
+    use_case_scope: str | None = None  # counter key of the use case budget (ADR-0031)
+    use_case_reserved_usd: Decimal = Decimal(0)
 
 
 class PolicySet:
@@ -250,6 +277,11 @@ def model_scope(team: str, project: str | None, model: str) -> str:
     """Counter key of a model budget (ADR-0025): ``team/model/<model>`` for the team's entry,
     ``team/<project>/model/<model>`` for a project's. Project names cannot contain ``/``."""
     return f"{team}/model/{model}" if project is None else f"{team}/{project}/model/{model}"
+
+
+def use_case_scope(team: str, project: str, use_case: str) -> str:
+    """Counter key of a use case budget (ADR-0031). Tags cannot contain ``/``."""
+    return f"{team}/{project}/use_case/{use_case}"
 
 
 def month_start(now: datetime | None = None) -> datetime:
@@ -379,14 +411,41 @@ class PolicyEngine:
         c = self._ledger.counter(model_scope(team, project if level else None, model))
         return _status(budget, c.spent_usd, c.reserved_usd)
 
-    def reserve_output_cap(self, team: str, project: str, model: str) -> int | None:
+    def use_case_budget_status(self, team: str, project: str, use_case: str) -> BudgetStatus | None:
+        proj = self._policies.resolve(team).project(project)
+        budget = proj.use_case(use_case).budget if proj is not None else None
+        if budget is None:
+            return None
+        c = self._ledger.counter(use_case_scope(team, project, use_case))
+        return _status(budget, c.spent_usd, c.reserved_usd)
+
+    def use_case_budget_states(self, team: str, project: str) -> dict[str, BudgetStatus] | None:
+        """State of every use case budget of a registered project, for the budgets report."""
+        proj = (self._policies.resolve(team).projects or {}).get(project)
+        if proj is None or not isinstance(proj.use_cases, dict):
+            return None
+        states = {}
+        for name, rules in proj.use_cases.items():
+            if rules.budget is not None:
+                c = self._ledger.counter(use_case_scope(team, project, name))
+                states[name] = _status(rules.budget, c.spent_usd, c.reserved_usd)
+        return states or None
+
+    def reserve_output_cap(
+        self, team: str, project: str, model: str, use_case: str | None = None
+    ) -> int | None:
         """The most output tokens the reservation of a call may assume (ADR-0028): the
         smallest ``reserve_output_tokens_max`` among the budgets that apply to the call (the
-        team's, the project's, the model's), or ``None`` when none of them sets one."""
+        team's, the project's, the model's, the use case's), or ``None`` when none sets one."""
         policy = self._policies.resolve(team)
         proj = policy.project(project) or ProjectPolicy()
         model_budget = policy.model_budget(proj, model)
-        budgets = (policy.budget, proj.budget, model_budget[1] if model_budget else None)
+        budgets = (
+            policy.budget,
+            proj.budget,
+            model_budget[1] if model_budget else None,
+            proj.use_case(use_case).budget if use_case else None,
+        )
         caps = [b.reserve_output_tokens_max for b in budgets if b and b.reserve_output_tokens_max]
         return min(caps) if caps else None
 
@@ -469,6 +528,24 @@ class PolicyEngine:
             )
             return PolicyDecision(allowed=False, violation="model_not_allowed", message=msg)
 
+        rules = proj.use_case(attr.use_case)
+        if not rules.allows_model(model):
+            log.warning(
+                "policy block team=%s project=%s use_case=%s model=%s reason=model_not_allowed",
+                attr.team,
+                attr.project,
+                attr.use_case,
+                model,
+            )
+            return PolicyDecision(
+                allowed=False,
+                violation="model_not_allowed",
+                message=(
+                    f"model '{model}' is not allowed for use case '{attr.use_case}' of "
+                    f"project '{attr.project}' (allowed: {', '.join(rules.allowed_models or [])})"
+                ),
+            )
+
         if policy.rate_limit is not None:
             retry = self._window.hit(attr.team, policy.rate_limit.requests_per_minute)
             if retry is not None:
@@ -491,7 +568,13 @@ class PolicyEngine:
         budget = policy.budget
         project_budget = proj.budget
         model_budget = policy.model_budget(proj, model)
-        if budget is None and project_budget is None and model_budget is None:
+        use_case_budget = rules.budget
+        if (
+            budget is None
+            and project_budget is None
+            and model_budget is None
+            and use_case_budget is None
+        ):
             return PolicyDecision(allowed=True)
 
         warnings: list[str] = []
@@ -558,6 +641,35 @@ class PolicyEngine:
                 warnings.append(warning)
             reserved_model = estimate
 
+        use_case_status: BudgetStatus | None = None
+        scope_use_case: str | None = None
+        reserved_use_case = Decimal(0)
+        if use_case_budget is not None:
+            who = f"use case '{attr.use_case}' of project '{attr.project}'"
+            scope_use_case = use_case_scope(attr.team, attr.project, attr.use_case)
+            ok, use_case_status, warning = self._reserve(
+                scope_use_case, use_case_budget, estimate, who, attr
+            )
+            if not ok:
+                if reserved_team:
+                    self._ledger.release(attr.team, reserved_team)
+                if reserved_project:
+                    self._ledger.release(project_scope(attr.team, attr.project), reserved_project)
+                if scope_model is not None and reserved_model:
+                    self._ledger.release(scope_model, reserved_model)
+                return PolicyDecision(
+                    allowed=False,
+                    violation="budget_exceeded",
+                    message=warning,
+                    budget=status,
+                    project_budget=project_status,
+                    model_budget=model_status,
+                    use_case_budget=use_case_status,
+                )
+            if warning:
+                warnings.append(warning)
+            reserved_use_case = estimate
+
         return PolicyDecision(
             allowed=True,
             warnings=warnings,
@@ -568,6 +680,9 @@ class PolicyEngine:
             model_budget=model_status,
             model_scope=scope_model,
             model_reserved_usd=reserved_model,
+            use_case_budget=use_case_status,
+            use_case_scope=scope_use_case,
+            use_case_reserved_usd=reserved_use_case,
         )
 
     def _reserve(

@@ -771,3 +771,41 @@ async def test_run_id_header_reaches_the_ledger_and_the_response(
     with pytest.raises(HTTPException) as exc:
         await plugin.async_pre_call_hook(key(), None, long, "acompletion")
     assert exc.value.status_code == 400
+
+
+async def test_use_case_rules_in_litellm_mode(tmp_path: Path, ledger: Ledger) -> None:
+    (tmp_path / "pricing.yaml").write_text(PRICING)
+    (tmp_path / "policies.yaml").write_text(
+        'version: "uc"\ndefaults:\n  allowed_models: ["*"]\nteams:\n  dev:\n'
+        "    projects:\n      checkout-web:\n        use_cases:\n"
+        '          plan: {allowed_models: ["other-model"]}\n'
+        "          implement: {budget: {monthly_usd: 1, reserve_output_tokens: 10}}\n"
+    )
+    plugin = FinOpsPlugin(
+        price_book=PriceBook.from_yaml(tmp_path / "pricing.yaml"),
+        policies=PolicySet.from_yaml(tmp_path / "policies.yaml"),
+        ledger=ledger,
+    )
+    k = key(team="dev", alias="dev-key", metadata={"finops": {"use_case": "implement"}})
+    data = await plugin.async_pre_call_hook(k, None, request(project="checkout-web"), "acompletion")
+    assert data is not None
+    scope = "dev/checkout-web/use_case/implement"
+    assert ledger.counter(scope).reserved_usd > 0
+    headers = await plugin.async_post_call_response_headers_hook(data, k, response())
+    assert headers is not None and headers["X-FinOps-Use-Case-Budget-Limit-USD"] == "1"
+    counter = ledger.counter(scope)
+    assert counter.reserved_usd == 0 and counter.spent_usd == Decimal("0.00000195")
+
+    planning = key(team="dev", alias="dev-key", metadata={"finops": {"use_case": "plan"}})
+    with pytest.raises(HTTPException) as exc:
+        await plugin.async_pre_call_hook(
+            planning, None, request(project="checkout-web"), "acompletion"
+        )
+    assert exc.value.status_code == 403
+    assert detail_of(exc.value)["error"] == "model_not_allowed"
+
+    # a failed call gives the use case reservation back too
+    data = await plugin.async_pre_call_hook(k, None, request(project="checkout-web"), "acompletion")
+    assert data is not None and ledger.counter(scope).reserved_usd > 0
+    await plugin.async_log_failure_event(success_kwargs(data), None, None, None)
+    assert ledger.counter(scope).reserved_usd == 0

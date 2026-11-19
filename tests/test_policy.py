@@ -821,3 +821,170 @@ def test_http_cap_admits_a_call_that_asks_for_a_large_max_tokens(
 
 
 PROJECT = {"X-Project": "demo"}
+
+
+# ---- rules per use case (ADR-0031) -------------------------------------------------------
+
+USE_CASES_YAML = """\
+version: use-cases
+defaults:
+  allowed_models: ["*"]
+teams:
+  product:
+    allowed_models: ["priced", "free"]
+    budget: {monthly_usd: 1}
+    projects:
+      checkout-web:
+        use_cases:
+          plan: {allowed_models: ["priced"]}
+          implement:
+            allowed_models: ["free", "elsewhere"]
+            budget: {monthly_usd: 0.02, warn_at: 0.5, reserve_output_tokens_max: 300}
+          tasks: {}
+      listed:
+        use_cases: ["faq", "summaries"]
+"""
+
+
+@pytest.fixture
+def uc_policies(tmp_path: Path) -> PolicySet:
+    path = tmp_path / "use-cases.yaml"
+    path.write_text(USE_CASES_YAML)
+    return PolicySet.from_yaml(path)
+
+
+@pytest.fixture
+def uc_engine(uc_policies: PolicySet, ledger: Ledger) -> PolicyEngine:
+    return PolicyEngine(uc_policies, ledger)
+
+
+def test_use_cases_as_a_mapping_register_their_names(uc_engine: PolicyEngine) -> None:
+    assert uc_engine.check(_attr("checkout-web", "tasks"), "priced", EST).allowed
+    d = uc_engine.check(_attr("checkout-web", "review"), "priced", EST)
+    assert d.violation == "use_case_not_registered"
+    assert "(registered: plan, implement, tasks)" in (d.message or "")
+    # the list form keeps working
+    assert uc_engine.check(_attr("listed", "faq"), "priced", EST).allowed
+    assert uc_engine.check(_attr("listed", "plan"), "priced", EST).violation is not None
+
+
+def test_use_case_model_list_narrows_and_never_widens(uc_engine: PolicyEngine) -> None:
+    assert uc_engine.check(_attr("checkout-web", "plan"), "priced", EST).allowed
+    d = uc_engine.check(_attr("checkout-web", "plan"), "free", EST)
+    assert not d.allowed and d.violation == "model_not_allowed"
+    assert d.message == (
+        "model 'free' is not allowed for use case 'plan' of project 'checkout-web' "
+        "(allowed: priced)"
+    )
+    # 'elsewhere' is on the use case list but not on the team's: the team's list still decides
+    d = uc_engine.check(_attr("checkout-web", "implement"), "elsewhere", EST)
+    assert d.violation == "model_not_allowed" and "team 'product'" in (d.message or "")
+
+
+def test_use_case_budget_is_reserved_and_settled_next_to_the_others(
+    uc_engine: PolicyEngine, ledger: Ledger
+) -> None:
+    scope = "product/checkout-web/use_case/implement"
+    d = uc_engine.check(_attr("checkout-web", "implement"), "free", EST)
+    assert d.allowed and d.use_case_scope == scope and d.use_case_reserved_usd == EST
+    assert d.use_case_budget is not None and d.use_case_budget.level == "warn"
+    assert d.warnings[0].startswith("use case 'implement' of project 'checkout-web'")
+    assert ledger.counter(scope).reserved_usd == EST
+    assert ledger.counter("product").reserved_usd == EST
+
+    entry = CostEntry(
+        request_id="u1",
+        team="product",
+        project="checkout-web",
+        use_case="implement",
+        provider="fake",
+        model="free",
+        input_tokens=1,
+        output_tokens=1,
+        cost_usd=Decimal("0.005"),
+        price_book_version="v",
+    )
+    ledger.record(
+        entry,
+        release_reserved=d.reserved_usd,
+        use_case_scope=d.use_case_scope,
+        use_case_reserved=d.use_case_reserved_usd,
+    )
+    c = ledger.counter(scope)
+    assert c.reserved_usd == 0 and c.spent_usd == Decimal("0.005")
+    status = uc_engine.use_case_budget_status("product", "checkout-web", "implement")
+    assert status is not None and status.used_pct == Decimal("25.0")
+    assert uc_engine.use_case_budget_status("product", "checkout-web", "plan") is None
+
+    # a use case without a budget reserves on the team only
+    d = uc_engine.check(_attr("checkout-web", "plan"), "priced", EST)
+    assert d.allowed and d.use_case_scope is None and d.use_case_budget is None
+
+
+def test_use_case_budget_blocks_and_releases_the_other_reservations(
+    uc_engine: PolicyEngine, ledger: Ledger
+) -> None:
+    scope = "product/checkout-web/use_case/implement"
+    ledger.reserve(scope, Decimal("0.02"), None)
+    d = uc_engine.check(_attr("checkout-web", "implement"), "free", EST)
+    assert not d.allowed and d.violation == "budget_exceeded"
+    assert d.use_case_budget is not None and d.use_case_budget.level == "block"
+    assert (d.message or "").startswith("use case 'implement' of project 'checkout-web'")
+    assert ledger.counter("product").reserved_usd == 0
+
+
+def test_use_case_budget_cap_bounds_the_reservation(uc_engine: PolicyEngine) -> None:
+    assert uc_engine.reserve_output_cap("product", "checkout-web", "free", "implement") == 300
+    assert uc_engine.reserve_output_cap("product", "checkout-web", "priced", "plan") is None
+
+
+def test_http_use_case_budget_in_headers_body_and_report(
+    uc_policies: PolicySet,
+    price_book: PriceBook,
+    pricing_path: Path,
+    ledger: Ledger,
+    fake_provider: FakeProvider,
+) -> None:
+    settings = Settings(
+        provider=ProviderKind.OLLAMA,
+        auth_mode="headers",
+        pricing_path=pricing_path,
+        database_url="sqlite:///:memory:",
+    )
+    app = create_app(
+        settings,
+        price_book=price_book,
+        policies=uc_policies,
+        keyring=KeyRing.empty(),
+        ledger=ledger,
+        provider=fake_provider,
+    )
+    scope = "product/checkout-web/use_case/implement"
+    with TestClient(app) as c:
+        hdr = {"X-Team": "product", "X-Project": "checkout-web", "X-Use-Case": "implement"}
+        r = c.post("/v1/chat/completions", json={**BODY, "model": "free"}, headers=hdr)
+        assert r.status_code == 200, r.text
+        assert r.headers["X-FinOps-Use-Case-Budget-Limit-USD"] == "0.02"
+        assert r.json()["x_finops"]["policy"]["use_case_budget"]["limit_usd"] == "0.02"
+        assert ledger.counter(scope).reserved_usd == 0
+
+        plan = {**hdr, "X-Use-Case": "plan"}
+        r = c.post("/v1/chat/completions", json=BODY, headers=plan)
+        assert r.status_code == 200 and "X-FinOps-Use-Case-Budget-Limit-USD" not in r.headers
+        assert r.json()["x_finops"]["policy"]["use_case_budget"] is None
+        r = c.post("/v1/chat/completions", json={**BODY, "model": "free"}, headers=plan)
+        assert r.status_code == 403 and r.json()["detail"]["error"] == "model_not_allowed"
+
+        ledger.reserve(scope, Decimal("0.02"), None)
+        r = c.post("/v1/chat/completions", json={**BODY, "model": "free"}, headers=hdr)
+        assert r.status_code == 403
+        assert r.json()["detail"]["use_case_budget"]["level"] == "block"
+        assert ledger.counter("product").reserved_usd == 0
+
+        teams = {t["team"]: t for t in c.get("/v1/finops/budgets").json()["teams"]}
+        projects = {p["project"]: p for p in teams["product"]["projects"]}
+        assert projects["checkout-web"]["use_cases"] == ["plan", "implement", "tasks"]
+        assert list(projects["checkout-web"]["use_case_budgets"]) == ["implement"]
+        assert projects["checkout-web"]["use_case_budgets"]["implement"]["limit_usd"] == "0.02"
+        assert projects["listed"]["use_cases"] == ["faq", "summaries"]
+        assert projects["listed"]["use_case_budgets"] is None

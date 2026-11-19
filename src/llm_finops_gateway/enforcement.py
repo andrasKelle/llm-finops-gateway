@@ -35,6 +35,8 @@ def rejection(
         detail["project_budget"] = decision.project_budget.as_dict()
     if decision.model_budget is not None:
         detail["model_budget"] = decision.model_budget.as_dict()
+    if decision.use_case_budget is not None:
+        detail["use_case_budget"] = decision.use_case_budget.as_dict()
     if decision.violation == "rate_limited":
         status_code = 429
         headers["Retry-After"] = str(decision.retry_after_seconds or 1)
@@ -46,9 +48,10 @@ def budget_headers(
     warnings: list[str],
     project_status: BudgetStatus | None = None,
     model_status: BudgetStatus | None = None,
+    use_case_status: BudgetStatus | None = None,
 ) -> dict[str, str]:
-    """The ``X-FinOps-Budget-*``, ``X-FinOps-Project-Budget-*``, ``X-FinOps-Model-Budget-*``
-    and ``X-FinOps-Warning`` headers after a call."""
+    """The ``X-FinOps-Budget-*``, ``X-FinOps-Project-Budget-*``, ``X-FinOps-Model-Budget-*``,
+    ``X-FinOps-Use-Case-Budget-*`` and ``X-FinOps-Warning`` headers after a call."""
     headers: dict[str, str] = {}
     if status is not None:
         headers["X-FinOps-Budget-Limit-USD"] = money(status.limit_usd)
@@ -65,6 +68,11 @@ def budget_headers(
         headers["X-FinOps-Model-Budget-Spent-USD"] = money(model_status.spent_usd)
         headers["X-FinOps-Model-Budget-Used-Pct"] = str(model_status.used_pct)
         headers["X-FinOps-Model-Budget-Status"] = model_status.level
+    if use_case_status is not None:
+        headers["X-FinOps-Use-Case-Budget-Limit-USD"] = money(use_case_status.limit_usd)
+        headers["X-FinOps-Use-Case-Budget-Spent-USD"] = money(use_case_status.spent_usd)
+        headers["X-FinOps-Use-Case-Budget-Used-Pct"] = str(use_case_status.used_pct)
+        headers["X-FinOps-Use-Case-Budget-Status"] = use_case_status.level
     if warnings:
         headers["X-FinOps-Warning"] = " | ".join(warnings)
     return headers

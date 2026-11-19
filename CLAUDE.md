@@ -60,9 +60,9 @@ docs/database.md   ledger engines, schema, PostgreSQL roles (lfgadmin/lfg_app/lf
 docs/images/       README images; diagrams.py draws architecture.svg and architecture-litellm.svg
                    (`python docs/images/diagrams.py`, needs the [demo] extra)
 docs/              architecture.md, deployment.md, azure-setup.md, testing-plan.md, comparison.md,
-                   litellm.md, adr/0001..0030
-tests/             one test module per source module, 280 tests (+4 PostgreSQL tests when LFG_TEST_DATABASE_URL is set;
-                   the 26 LiteLLM plugin tests skip without the [litellm] extra), FakeProvider in conftest.py
+                   litellm.md, adr/0001..0031
+tests/             one test module per source module, 287 tests (+4 PostgreSQL tests when LFG_TEST_DATABASE_URL is set;
+                   the 27 LiteLLM plugin tests skip without the [litellm] extra), FakeProvider in conftest.py
 ```
 
 ## Behaviour that must not regress
@@ -77,6 +77,10 @@ tests/             one test module per source module, 280 tests (+4 PostgreSQL t
   `use_case_not_registered`, before any provider call; a project budget is reserved and
   settled next to the team's under the counter scope `team/project`; teams without the map
   keep free-text projects.
+- Use case rules (ADR-0031): `use_cases` as a list of names or a mapping; a mapping entry may
+  set `allowed_models` (narrows the team's and the project's, 403 `model_not_allowed` naming the
+  use case) and `budget` (reserved fourth under `team/project/use_case/<use_case>`, reported as
+  `x_finops.policy.use_case_budget`, `X-FinOps-Use-Case-Budget-*`, `use_case_budgets`).
 - Model budgets (ADR-0025): `model_budgets` on a team or a project, one entry applies per call
   (the project's replaces the team's), reserved third under `team/model/<model>` or
   `team/<project>/model/<model>`, reported as `x_finops.policy.model_budget`,
@@ -157,7 +161,7 @@ Bias toward caution over speed; for trivial tasks use judgment.
 - `make check` must be green before any commit: ruff (lint + format), mypy `--strict` on
   `src` and `tests`, pytest. Pre-commit is installed by `make install`.
 - Every module has a test module; new behaviour comes with a test in the same change.
-- Every design decision gets an ADR in `docs/adr/` (next number: 0031). ADR-0009 (evaluation
+- Every design decision gets an ADR in `docs/adr/` (next number: 0032). ADR-0009 (evaluation
   replay) is Proposed, not implemented.
 - Decimal for money everywhere; never float.
 - A schema change is a new revision in `migrations/versions` plus the same change in the models

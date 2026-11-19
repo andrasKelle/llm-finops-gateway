@@ -187,10 +187,13 @@ class Ledger:
         project_reserved: Decimal | None = None,
         model_scope: str | None = None,
         model_reserved: Decimal = ZERO,
+        use_case_scope: str | None = None,
+        use_case_reserved: Decimal = ZERO,
     ) -> None:
         """Insert the ledger row and settle the counters in one transaction: the team's
         always, the project's (scope ``team/project``) when ``project_reserved`` is given, the
-        model budget's when ``model_scope`` is given (ADR-0025)."""
+        model budget's when ``model_scope`` is given (ADR-0025), the use case budget's when
+        ``use_case_scope`` is given (ADR-0031)."""
         ts = entry.ts or datetime.now(UTC)
         month = month_key(ts)
         with Session(self._engine) as session:
@@ -219,6 +222,8 @@ class Ledger:
                 scopes.append((f"{entry.team}/{entry.project}", project_reserved))
             if model_scope is not None:
                 scopes.append((model_scope, model_reserved))
+            if use_case_scope is not None:
+                scopes.append((use_case_scope, use_case_reserved))
             for scope, release in scopes:
                 self._ensure_counter(session, scope, month)
                 session.execute(

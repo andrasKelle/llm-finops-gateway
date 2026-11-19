@@ -37,7 +37,8 @@ src/llm_finops_gateway/
   reload.py        WatchedFile: price book and policies reloaded on change (ADR-0022)
   focus.py         FOCUS 1.1 export of the ledger, daily rows (ADR-0023); CLI `ledger export`
   litellm_plugin.py FinOpsPlugin (LiteLLM CustomLogger): the same rules inside a LiteLLM proxy (ADR-0019),
-                   chat completions and the Anthropic /v1/messages route (Claude Code, ADR-0027)
+                   chat completions, the Anthropic /v1/messages route (Claude Code, ADR-0027) and the
+                   OpenAI /v1/responses route (GitHub Copilot, ADR-0029)
   litellm_ui.py    the report page as a LiteLLM dashboard plugin: claim verification, session cookie, shell (ADR-0024)
   providers/       base.py (Provider protocol), ollama.py, azure_openai.py, openai_compat.py (ADR-0010),
                    azure_identity.py (Entra ID tokens, [azure] extra, ADR-0014)
@@ -59,9 +60,9 @@ docs/database.md   ledger engines, schema, PostgreSQL roles (lfgadmin/lfg_app/lf
 docs/images/       README images; diagrams.py draws architecture.svg and architecture-litellm.svg
                    (`python docs/images/diagrams.py`, needs the [demo] extra)
 docs/              architecture.md, deployment.md, azure-setup.md, testing-plan.md, comparison.md,
-                   litellm.md, adr/0001..0028
-tests/             one test module per source module, 272 tests (+4 PostgreSQL tests when LFG_TEST_DATABASE_URL is set;
-                   the 21 LiteLLM plugin tests skip without the [litellm] extra), FakeProvider in conftest.py
+                   litellm.md, adr/0001..0029
+tests/             one test module per source module, 276 tests (+4 PostgreSQL tests when LFG_TEST_DATABASE_URL is set;
+                   the 25 LiteLLM plugin tests skip without the [litellm] extra), FakeProvider in conftest.py
 ```
 
 ## Behaviour that must not regress
@@ -96,6 +97,10 @@ tests/             one test module per source module, 272 tests (+4 PostgreSQL t
   Anthropic request field and is not touched), every call settles from the success event, a
   rejection's `error` is `code: explanation` with the bare code in `code` (the chat route keeps
   the bare code), `/v1/messages/count_tokens` never reaches the plugin.
+- Plugin on `/v1/responses` (ADR-0029, measured with Copilot CLI 1.0.114): call types
+  `responses` / `aresponses`, the estimate reads `input`, `instructions`, `tools` and
+  `max_output_tokens`, marker under `litellm_metadata`, settles from the success event, a
+  rejection speaks as on `/v1/messages`. Other call types (embeddings, images) pass through.
 - Cache writes (Anthropic): `cache_write_input_tokens` is part of `input_tokens`,
   `cache_write_1h_input_tokens` part of that; billed at `cache_write` / `cache_write_1h`
   (fallback: `input`, then `cache_write`) and stored on the ledger row.
@@ -149,7 +154,7 @@ Bias toward caution over speed; for trivial tasks use judgment.
 - `make check` must be green before any commit: ruff (lint + format), mypy `--strict` on
   `src` and `tests`, pytest. Pre-commit is installed by `make install`.
 - Every module has a test module; new behaviour comes with a test in the same change.
-- Every design decision gets an ADR in `docs/adr/` (next number: 0029). ADR-0009 (evaluation
+- Every design decision gets an ADR in `docs/adr/` (next number: 0030). ADR-0009 (evaluation
   replay) is Proposed, not implemented.
 - Decimal for money everywhere; never float.
 - A schema change is a new revision in `migrations/versions` plus the same change in the models

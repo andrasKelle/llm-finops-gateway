@@ -52,6 +52,13 @@ CHAT_CALL_TYPES = frozenset({"completion", "acompletion"})
 # `/v1/messages` (Claude Code and other Anthropic Messages clients, ADR-0027). On this route
 # `metadata` is the Anthropic request field, so LiteLLM keeps its own under `litellm_metadata`.
 MESSAGES_CALL_TYPES = frozenset({"anthropic_messages", "aanthropic_messages"})
+# `/v1/responses` (OpenAI Responses API: Copilot with `wireApi` / `apiType` responses,
+# ADR-0029). `input` and `instructions` replace `messages`, and `metadata` is the client's own
+# field here as well.
+RESPONSES_CALL_TYPES = frozenset({"responses", "aresponses"})
+# The routes a coding agent calls: LiteLLM's metadata sits under `litellm_metadata`, and the
+# client shows its user only the error message.
+AGENT_CALL_TYPES = MESSAGES_CALL_TYPES | RESPONSES_CALL_TYPES
 PENDING_MAX_AGE_S = 3600.0
 
 
@@ -119,10 +126,21 @@ def _system_chars(system: Any) -> int:
     return 0
 
 
+def _responses_input(value: Any) -> tuple[list[dict[str, Any]], int]:
+    """The `input` of a Responses request as messages for the estimate, plus the characters of
+    the items that are not messages (function calls and their outputs)."""
+    if isinstance(value, str):
+        return [{"role": "user", "content": value}], 0
+    items = [i for i in value if isinstance(i, dict)] if isinstance(value, list) else []
+    messages = [i for i in items if "content" in i]
+    return messages, sum(len(json.dumps(i)) for i in items if "content" not in i)
+
+
 def _spoken(detail: dict[str, Any]) -> dict[str, Any]:
-    """The rejection body for `/v1/messages`. LiteLLM passes only ``detail["error"]`` on as the
-    error message, and Claude Code shows the developer nothing but that message, so the
-    explanation goes next to the code there; the bare code stays available as ``code``."""
+    """The rejection body for `/v1/messages` and `/v1/responses`. LiteLLM passes only
+    ``detail["error"]`` on as the error message, and a coding agent shows the developer nothing
+    but that message, so the explanation goes next to the code there; the bare code stays
+    available as ``code``."""
     text = detail.get("message") or detail.get("hint")
     if not text:
         return detail
@@ -237,11 +255,11 @@ class FinOpsPlugin(CustomLogger):
     async def async_pre_call_hook(
         self, user_api_key_dict: Any, cache: Any, data: dict[str, Any], call_type: str
     ) -> dict[str, Any] | None:
-        if call_type not in CHAT_CALL_TYPES and call_type not in MESSAGES_CALL_TYPES:
+        if call_type not in CHAT_CALL_TYPES and call_type not in AGENT_CALL_TYPES:
             return data
         book, engine, ledger = self._ensure()
         self._sweep(ledger)
-        shape = _spoken if call_type in MESSAGES_CALL_TYPES else dict
+        shape = _spoken if call_type in AGENT_CALL_TYPES else dict
 
         headers = (data.get("proxy_server_request") or {}).get("headers") or {}
         team = getattr(user_api_key_dict, "team_alias", None)
@@ -295,6 +313,10 @@ class FinOpsPlugin(CustomLogger):
         max_tokens = data.get("max_completion_tokens") or data.get("max_tokens")
         tool_chars = len(json.dumps(data["tools"])) if data.get("tools") else 0
         extra_chars = tool_chars + _system_chars(data.get("system"))
+        if call_type in RESPONSES_CALL_TYPES:
+            messages, item_chars = _responses_input(data.get("input"))
+            max_tokens = data.get("max_output_tokens")
+            extra_chars += item_chars + len(str(data.get("instructions") or ""))
         cap = engine.reserve_output_cap(attr.team, attr.project, model)
         estimate = estimate_cost(
             book, model, messages, max_tokens, reserve_output, extra_chars, cap
@@ -320,7 +342,7 @@ class FinOpsPlugin(CustomLogger):
             decision.model_scope,
             decision.model_reserved_usd,
         )
-        meta_key = "litellm_metadata" if call_type in MESSAGES_CALL_TYPES else "metadata"
+        meta_key = "litellm_metadata" if call_type in AGENT_CALL_TYPES else "metadata"
         data.setdefault(meta_key, {})[META] = {"request_id": request_id, "team": attr.team}
         return data
 

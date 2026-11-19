@@ -643,3 +643,112 @@ async def test_messages_reservation_respects_the_output_cap(tmp_path: Path, ledg
     reserved = ledger.counter("dev").reserved_usd
     assert Decimal("0.08") < reserved < Decimal("0.09")
     assert ledger.counter("dev/model/claude-sonnet-5-5").reserved_usd == reserved
+
+
+def responses_request(project: str | None = "chat-assistant", **extra: Any) -> dict[str, Any]:
+    """The pre-call data of a `/v1/responses` request as LiteLLM 1.108 hands it over (measured
+    with Copilot CLI 1.0.114): `input` and `instructions` instead of `messages`, no
+    `max_tokens`, the proxy's own metadata under `litellm_metadata`."""
+    headers = {"content-type": "application/json", "user-agent": "OpenAI/JS 5.20.1"}
+    if project:
+        headers["x-project"] = project
+    data: dict[str, Any] = {
+        "model": "gpt-4o-mini",
+        "instructions": "You are a coding agent. " + "s" * 4000,
+        "input": [
+            {"role": "user", "content": [{"type": "input_text", "text": "hi"}]},
+            {"type": "function_call", "call_id": "c1", "name": "bash", "arguments": '{"c": "ls"}'},
+            {"type": "function_call_output", "call_id": "c1", "output": "a.txt"},
+        ],
+        "tools": [{"type": "function", "name": "bash", "parameters": {"type": "object"}}],
+        "stream": True,
+        "litellm_metadata": {"endpoint": "/v1/responses"},
+        "proxy_server_request": {"headers": headers},
+    }
+    data.update(extra)
+    return data
+
+
+def responses_success(data: dict[str, Any]) -> tuple[dict[str, Any], SimpleNamespace]:
+    """The success event of that request: LiteLLM hands the usage over in the chat shape."""
+    kwargs = {
+        "litellm_params": {"litellm_metadata": data["litellm_metadata"]},
+        "standard_logging_object": {"custom_llm_provider": "openai"},
+        "response_cost": 8.9e-05,
+    }
+    return kwargs, response(prompt=1200, completion=7, cached=1000)
+
+
+async def test_responses_call_is_attributed_reserved_and_settled(
+    plugin: FinOpsPlugin, ledger: Ledger
+) -> None:
+    k = key(metadata={"finops": {"use_case": "implement"}})
+    data = await plugin.async_pre_call_hook(k, None, responses_request(), "aresponses")
+    assert data is not None
+    assert "metadata" not in data  # on this route `metadata` is the client's own field
+    assert data["litellm_metadata"]["finops"]["team"] == "customer-support"
+    # the 4,000-character instructions alone are about 1,000 input tokens: 0.00015
+    reserved = ledger.counter("customer-support").reserved_usd
+    assert Decimal("0.00015") < reserved < Decimal("0.0002")
+
+    # the response object carries input_tokens / output_tokens; like /v1/messages, the call is
+    # settled from the success event
+    body = SimpleNamespace(usage=SimpleNamespace(input_tokens=1200, output_tokens=7))
+    headers = await plugin.async_post_call_response_headers_hook(data, k, body)
+    assert headers is not None and "X-FinOps-Cost-USD" not in headers
+    assert ledger.counter("customer-support").reserved_usd == reserved
+
+    kwargs, response_obj = responses_success(data)
+    await plugin.async_log_success_event(kwargs, response_obj, None, None)
+    counter = ledger.counter("customer-support")
+    # 200 fresh input + 1,000 cached input + 7 output tokens
+    assert counter.reserved_usd == 0 and counter.spent_usd == Decimal("0.0001092")
+    now = datetime.now(UTC)
+    (row,) = ledger.rows(now - timedelta(hours=1), now + timedelta(hours=1))
+    assert (row.team, row.project) == ("customer-support", "chat-assistant")
+    assert row.use_case == "implement"  # from the key metadata, no header needed
+    assert (row.provider, row.model) == ("openai", "gpt-4o-mini")
+    assert (row.input_tokens, row.output_tokens, row.cached_input_tokens) == (1200, 7, 1000)
+
+
+async def test_responses_call_follows_the_same_rejections(plugin: FinOpsPlugin) -> None:
+    with pytest.raises(HTTPException) as exc:
+        await plugin.async_pre_call_hook(key(), None, responses_request(project=None), "aresponses")
+    assert exc.value.status_code == 400
+    # a coding agent shows its user only the message: the explanation rides along with the code
+    detail = detail_of(exc.value)
+    assert detail["code"] == "missing_attribution"
+    assert detail["error"].startswith("missing_attribution: Set X-Project")
+
+    with pytest.raises(HTTPException) as exc:
+        await plugin.async_pre_call_hook(
+            key(), None, responses_request(model="gpt-unknown"), "aresponses"
+        )
+    assert exc.value.status_code == 422
+
+
+async def test_responses_estimate_reads_max_output_tokens_and_a_plain_input(
+    plugin: FinOpsPlugin, ledger: Ledger
+) -> None:
+    small = responses_request(input="Say OK", instructions=None, tools=None)
+    assert await plugin.async_pre_call_hook(key(), None, small, "responses") is not None
+    assert ledger.counter("customer-support").reserved_usd < Decimal("0.00001")
+
+    # 100,000 output tokens are 0.06, far above the 0.001 budget
+    with pytest.raises(HTTPException) as exc:
+        await plugin.async_pre_call_hook(
+            key(), None, responses_request(max_output_tokens=100_000), "aresponses"
+        )
+    assert exc.value.status_code == 403
+    assert detail_of(exc.value)["code"] == "budget_exceeded"
+
+
+async def test_responses_failure_releases_the_reservation(
+    plugin: FinOpsPlugin, ledger: Ledger
+) -> None:
+    data = await plugin.async_pre_call_hook(key(), None, responses_request(), "aresponses")
+    assert data is not None and ledger.counter("customer-support").reserved_usd > 0
+    kwargs, _ = responses_success(data)
+    await plugin.async_log_failure_event({**kwargs, "exception": "boom"}, None, None, None)
+    assert ledger.counter("customer-support").reserved_usd == 0
+    assert ledger.counter("customer-support").spent_usd == 0

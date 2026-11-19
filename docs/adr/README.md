@@ -33,6 +33,7 @@ immutable once accepted; a later ADR supersedes an earlier one rather than editi
 | [0026](0026-schema-migrations.md) | The ledger schema is versioned with Alembic migrations | Accepted |
 | [0027](0027-claude-code-behind-the-plugin.md) | Claude Code and other Anthropic Messages clients run behind the LiteLLM plugin | Accepted |
 | [0028](0028-reservation-output-cap.md) | A budget may cap the output tokens its reservation assumes | Accepted |
+| [0029](0029-responses-route-and-copilot.md) | The Responses API route and GitHub Copilot behind the LiteLLM plugin | Accepted |
 
 ## Template
 

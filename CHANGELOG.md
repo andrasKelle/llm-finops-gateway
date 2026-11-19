@@ -7,6 +7,12 @@ is called out here.
 
 ## [Unreleased]
 
+### Added
+- LiteLLM plugin: the OpenAI Responses route (`/v1/responses`) runs the same attribution, price
+  book, policy and budget steps as chat completions and `/v1/messages`, and settles from the
+  success event. GitHub Copilot CLI was measured behind the plugin on both wire APIs (ADR-0029).
+  Before, a Responses call passed through the plugin without an owner, a price or a budget.
+
 ## [0.4.2] - 2026-11-18
 
 The report page shows every budget scope. No schema revision: a database migrated for 0.4.0

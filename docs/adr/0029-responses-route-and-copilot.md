@@ -71,6 +71,6 @@ Then with VS Code 1.143.1 (Copilot Chat 0.71.0, Custom Endpoint provider):
   route) still pass through unmetered. Embeddings are the next route to cover; until then a
   team's LiteLLM models should not include an embedding model the price book has no row for.
 - VS Code can carry the project, the use case and the run id per model entry, so a phase is
-  a model entry in the picker. On a `403` its user sees the code but not the explanation on
-  the chat completions route, and every rejection reaches the plugin six times because the
-  client retries.
+  a model entry in the picker. On a `403` its user saw the code without the explanation on
+  the chat completions route, which ADR-0034 changes; every rejection reaches the plugin six
+  times because the client retries.

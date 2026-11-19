@@ -31,6 +31,13 @@ starting this version.
   success event. GitHub Copilot CLI was measured behind the plugin on both wire APIs (ADR-0029).
   Before, a Responses call passed through the plugin without an owner, a price or a budget.
 
+### Changed
+- LiteLLM plugin, chat completions: a rejection's message is now `code: explanation`
+  (`budget_exceeded: team 'dev' has used ...`), as on `/v1/messages` and `/v1/responses`, so an
+  editor that prints only the message shows the reason. The bare code moved to
+  `provider_specific_fields.code`; a client that compared `error.message` with the code must
+  read it there. Status codes and the gateway's own rejections are unchanged (ADR-0034).
+
 ## [0.4.2] - 2026-11-18
 
 The report page shows every budget scope. No schema revision: a database migrated for 0.4.0

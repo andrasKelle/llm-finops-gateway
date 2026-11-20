@@ -7,6 +7,11 @@ is called out here.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-20
+
+Pinned keys in the LiteLLM plugin. No schema revision: a database migrated for 0.5.0 needs
+nothing.
+
 ### Added
 - LiteLLM plugin: a key whose `finops` metadata block says `"pin": true` binds the project and
   use case it carries. A call whose `X-Project` or `X-Use-Case` says something else is refused
@@ -353,7 +358,8 @@ First public release.
   results, comparison with existing gateways, ADRs 0001 to 0009, CONTRIBUTING, GOVERNANCE,
   CODE_OF_CONDUCT, SECURITY, CLA, MAINTAINERS.
 
-[Unreleased]: https://github.com/andrasKelle/llm-finops-gateway/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/andrasKelle/llm-finops-gateway/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/andrasKelle/llm-finops-gateway/releases/tag/v0.5.1
 [0.5.0]: https://github.com/andrasKelle/llm-finops-gateway/releases/tag/v0.5.0
 [0.4.2]: https://github.com/andrasKelle/llm-finops-gateway/releases/tag/v0.4.2
 [0.4.1]: https://github.com/andrasKelle/llm-finops-gateway/releases/tag/v0.4.1

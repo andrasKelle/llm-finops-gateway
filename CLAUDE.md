@@ -8,7 +8,7 @@ private.
 `llm-finops-gateway`: an OpenAI-compatible LLM gateway that makes every call attributable
 (team + project, optional use case), prices it from a versioned price book, enforces per-team
 budgets and rate limits as code, and exposes cost and policy data to Prometheus / OpenTelemetry.
-Apache-2.0, maintained by András Kelle (`andrasKelle`). Version `0.5.2` (2026-11-20), first commit pushed
+Apache-2.0, maintained by András Kelle (`andrasKelle`). Version `0.5.3` (2026-11-20), first commit pushed
 2026-10-28, public since 2026-11-13.
 
 Audience: platform / FinOps teams that put the gateway in front of Azure OpenAI, Ollama (on-prem)
@@ -285,6 +285,9 @@ Fixed and merged on 2026-10-28 (PRs #6 and #8), all green since:
   revision.
 - `v0.5.2` (2026-11-20): an alias can name the use case its calls belong to (ADR-0036,
   PR #101). No schema revision.
+- `v0.5.3` (2026-11-20): a price book row can price a long prompt (`long_prompt`, ADR-0037,
+  PR #104); the shipped price book has Haiku's prices above 100K prompt tokens. No schema
+  revision.
 
 Repository settings: Workflow permissions "Read and write" (needed by `cla` and `release`);
 automatic deletion of merged head branches is on; Discussions, topics, Dependabot alerts and

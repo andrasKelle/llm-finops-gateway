@@ -7,6 +7,11 @@ is called out here.
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-11-20
+
+A second set of prices for long prompts. No schema revision: a database migrated for 0.5.0
+needs nothing.
+
 ### Added
 - A price book row may carry `long_prompt`, a threshold and a second set of prices:
   `long_prompt: { above: 100000, input: 0.50, output: 2.50, ... }`. A call whose prompt is
@@ -384,7 +389,8 @@ First public release.
   results, comparison with existing gateways, ADRs 0001 to 0009, CONTRIBUTING, GOVERNANCE,
   CODE_OF_CONDUCT, SECURITY, CLA, MAINTAINERS.
 
-[Unreleased]: https://github.com/andrasKelle/llm-finops-gateway/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/andrasKelle/llm-finops-gateway/compare/v0.5.3...HEAD
+[0.5.3]: https://github.com/andrasKelle/llm-finops-gateway/releases/tag/v0.5.3
 [0.5.2]: https://github.com/andrasKelle/llm-finops-gateway/releases/tag/v0.5.2
 [0.5.1]: https://github.com/andrasKelle/llm-finops-gateway/releases/tag/v0.5.1
 [0.5.0]: https://github.com/andrasKelle/llm-finops-gateway/releases/tag/v0.5.0

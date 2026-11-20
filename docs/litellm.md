@@ -96,6 +96,18 @@ curl -s -X POST $LITELLM/key/generate -H "Authorization: Bearer $MASTER" \
 `X-Project` and `X-Use-Case` still win when a call sends them. An optional `X-Run-Id` header
 is stored on the ledger row and echoed as `X-FinOps-Run-Id` (ADR-0030).
 
+Add `"pin": true` to the block and the key's values are binding instead of defaults (ADR-0035):
+
+```bash
+  -d '{"team_id":"<team id>","key_alias":"alice-plan","metadata":{"finops":{"project":"my-repo","use_case":"plan","pin":true}}}'
+```
+
+A call with that key and `X-Use-Case: implement` is refused with `403 use_case_not_allowed`,
+another project with `403 project_not_allowed`, before any provider call; a header that agrees
+with the key, or none, is served. Use it for one key per phase of a development cycle: what a
+client's settings say then cannot move a call into another phase. The pin is as strong as key
+issuance, so hand out keys, not the right to create them.
+
 ## Try it locally
 
 `examples/litellm/docker-compose.yml` starts four services next to a PostgreSQL store for

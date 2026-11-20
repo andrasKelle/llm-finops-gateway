@@ -139,6 +139,71 @@ async def test_key_metadata_supplies_the_default_project_and_use_case(
     assert {r.project for r in rows} == {"chat-assistant", "internal-tools"}
 
 
+PINNED = {META: {"project": "chat-assistant", "use_case": "plan", "pin": True}}
+ALL_TIME = (datetime(2000, 1, 1, tzinfo=UTC), datetime(2100, 1, 1, tzinfo=UTC))
+
+
+async def test_pinned_key_rejects_a_header_that_contradicts_it(
+    plugin: FinOpsPlugin, ledger: Ledger
+) -> None:
+    pinned = key(alias="plan-key", metadata=PINNED)
+    # another phase than the key's
+    data = request()
+    data["proxy_server_request"]["headers"]["x-use-case"] = "implement"
+    with pytest.raises(HTTPException) as exc:
+        await plugin.async_pre_call_hook(pinned, None, data, "acompletion")
+    assert exc.value.status_code == 403
+    detail = detail_of(exc.value)
+    assert detail["code"] == "use_case_not_allowed"
+    assert detail["error"] == (
+        "use_case_not_allowed: key 'plan-key' may only be used for use case 'plan', not 'implement'"
+    )
+    # another project than the key's, on the route a coding agent uses
+    with pytest.raises(HTTPException) as exc:
+        await plugin.async_pre_call_hook(
+            pinned, None, responses_request(project="internal-tools"), "aresponses"
+        )
+    assert exc.value.status_code == 403
+    detail = detail_of(exc.value)
+    assert detail["code"] == "project_not_allowed"
+    assert detail["error"] == (
+        "project_not_allowed: key 'plan-key' may only be used for project 'chat-assistant', "
+        "not 'internal-tools'"
+    )
+    # rejected before the policy check: nothing reserved, nothing recorded
+    assert ledger.counter("customer-support").reserved_usd == 0
+    assert ledger.rows(*ALL_TIME) == []
+
+
+async def test_pinned_key_serves_a_call_that_agrees_or_says_nothing(
+    plugin: FinOpsPlugin, ledger: Ledger
+) -> None:
+    pinned = key(alias="plan-key", metadata=PINNED)
+    agreeing = request()
+    agreeing["proxy_server_request"]["headers"]["x-use-case"] = "plan"
+    for data in (request(project=None), agreeing):
+        served = await plugin.async_pre_call_hook(pinned, None, data, "acompletion")
+        assert served is not None
+        await plugin.async_post_call_response_headers_hook(served, pinned, response())
+    rows = ledger.rows(*ALL_TIME)
+    assert [(r.project, r.use_case) for r in rows] == [("chat-assistant", "plan")] * 2
+
+
+async def test_pin_binds_only_what_the_key_carries(plugin: FinOpsPlugin) -> None:
+    # the key names a use case and no project: the project stays the caller's to say
+    phase = key(alias="phase-key", metadata={META: {"use_case": "plan", "pin": True}})
+    data = await plugin.async_pre_call_hook(
+        phase, None, request(project="internal-tools"), "acompletion"
+    )
+    assert data is not None
+    # and only a literal true pins: anything else leaves the values as defaults
+    loose = key(alias="loose-key", metadata={META: {"project": "chat-assistant", "pin": "yes"}})
+    data = await plugin.async_pre_call_hook(
+        loose, None, request(project="internal-tools"), "acompletion"
+    )
+    assert data is not None
+
+
 async def test_key_without_team_is_400(plugin: FinOpsPlugin) -> None:
     with pytest.raises(HTTPException) as exc:
         await plugin.async_pre_call_hook(key(team=None), None, request(), "acompletion")

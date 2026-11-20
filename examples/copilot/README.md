@@ -39,12 +39,14 @@ key() {  # alias, metadata JSON
     | python3 -c 'import sys,json;print(json.load(sys.stdin)["key"])'
 }
 key alice-vscode    '{}'
-key alice-plan      '{"finops":{"project":"my-repo","use_case":"plan"}}'
-key alice-implement '{"finops":{"project":"my-repo","use_case":"implement"}}'
+key alice-plan      '{"finops":{"project":"my-repo","use_case":"plan","pin":true}}'
+key alice-implement '{"finops":{"project":"my-repo","use_case":"implement","pin":true}}'
 ```
 
 The first key is for VS Code, which sends the project and the phase as headers. The other two
-are for Copilot CLI, which cannot send headers: there the key carries them.
+are for Copilot CLI, which cannot send headers: there the key carries them. `"pin": true` makes
+what the key carries binding (ADR-0035): a call with `alice-plan` that claims another phase or
+project is refused with 403.
 
 ## VS Code
 
@@ -111,6 +113,11 @@ returns the same as JSON, `/v1/finops/summary.csv` as CSV.
 
 ## Good to know
 
+- **Client settings are not the control.** The headers in `chatLanguageModels.json` are what
+  the developer's machine says, and one edited line claims another phase. That is fine for a
+  walk-through and for attribution inside a team's budget. Where the phase must hold, give each
+  phase a pinned key as above (in VS Code: one model group per key) and issue the keys
+  centrally; the settings then carry a URL and a model name and nothing else that matters.
 - **Only what goes through the endpoint is recorded.** The coding agent that runs on GitHub's
   side and inline suggestions do not use these settings; their usage is in GitHub's own Copilot
   usage metrics.

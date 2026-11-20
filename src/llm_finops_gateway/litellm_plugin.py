@@ -110,12 +110,16 @@ def _usage_of(obj: Any) -> TokenUsage | None:
     )
 
 
-def _key_defaults(user_api_key_dict: Any) -> dict[str, str]:
-    """The ``finops`` block of the key's LiteLLM metadata: default project and use case."""
+def _key_block(user_api_key_dict: Any) -> dict[str, Any]:
+    """The ``finops`` block of the key's LiteLLM metadata."""
     meta = getattr(user_api_key_dict, "metadata", None)
     block = meta.get(META) if isinstance(meta, dict) else None
-    if not isinstance(block, dict):
-        return {}
+    return block if isinstance(block, dict) else {}
+
+
+def _key_defaults(user_api_key_dict: Any) -> dict[str, str]:
+    """The project and use case the key carries in its ``finops`` block."""
+    block = _key_block(user_api_key_dict)
     return {k: str(v) for k, v in block.items() if k in ("project", "use_case") and v}
 
 
@@ -278,8 +282,28 @@ class FinOpsPlugin(CustomLogger):
             )
         # A key may carry a default project and use case in its LiteLLM metadata
         # (`metadata: {finops: {project: ..., use_case: ...}}` on /key/generate); the headers
-        # win when present.
+        # win when present, unless the block says `pin: true`: then what the key carries is
+        # binding and a header that says something else is refused (ADR-0035).
         defaults = _key_defaults(user_api_key_dict)
+        if _key_block(user_api_key_dict).get("pin") is True:
+            for field, header, noun in (
+                ("project", "x-project", "project"),
+                ("use_case", "x-use-case", "use case"),
+            ):
+                own, sent = defaults.get(field), headers.get(header)
+                if own and sent and sent != own:
+                    alias = getattr(user_api_key_dict, "key_alias", None)
+                    raise HTTPException(
+                        status_code=403,
+                        detail=_spoken(
+                            {
+                                "error": f"{field}_not_allowed",
+                                "message": f"key '{alias}' may only be used for {noun} "
+                                f"'{own}', not '{sent}'",
+                                "team": team,
+                            }
+                        ),
+                    )
         project = headers.get("x-project") or defaults.get("project")
         use_case = headers.get("x-use-case") or defaults.get("use_case")
         if not project:

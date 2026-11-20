@@ -23,7 +23,7 @@ src/llm_finops_gateway/
   main.py          create_app(settings, price_book, policies, keyring, ledger, provider, providers);
                    endpoints, build_providers(), route_models() (ADR-0011)
   config.py        Settings (env prefix LFG_): provider, auth_mode, paths, database_url, otel_*
-  pricing.py       PriceBook (config/pricing.yaml, versioned; cached_input, cache_write, cache_write_1h),
+  pricing.py       PriceBook (config/pricing.yaml, versioned; cached_input, cache_write, cache_write_1h, long_prompt),
                    UnknownModelError, money()
   pricing_sync.py  `pricing sync`: Azure Retail Prices meters -> price book diff / rewrite (ADR-0013)
   policy.py        PolicySet / PolicyEngine: allow-list -> rate limit -> atomic budget reservation
@@ -61,9 +61,9 @@ docs/database.md   ledger engines, schema, PostgreSQL roles (lfgadmin/lfg_app/lf
 docs/images/       README images; diagrams.py draws architecture.svg and architecture-litellm.svg
                    (`python docs/images/diagrams.py`, needs the [demo] extra)
 docs/              architecture.md, deployment.md, azure-setup.md, testing-plan.md, comparison.md,
-                   litellm.md, adr/0001..0036
-tests/             one test module per source module, 305 tests (+4 PostgreSQL tests when LFG_TEST_DATABASE_URL is set;
-                   the 32 LiteLLM plugin tests skip without the [litellm] extra), FakeProvider in conftest.py
+                   litellm.md, adr/0001..0037
+tests/             one test module per source module, 321 tests (+4 PostgreSQL tests when LFG_TEST_DATABASE_URL is set;
+                   the 33 LiteLLM plugin tests skip without the [litellm] extra), FakeProvider in conftest.py
 ```
 
 ## Behaviour that must not regress
@@ -117,6 +117,11 @@ tests/             one test module per source module, 305 tests (+4 PostgreSQL t
 - Cache writes (Anthropic): `cache_write_input_tokens` is part of `input_tokens`,
   `cache_write_1h_input_tokens` part of that; billed at `cache_write` / `cache_write_1h`
   (fallback: `input`, then `cache_write`) and stored on the ledger row.
+- Long prompt prices (ADR-0037): a priced row's `long_prompt: { above, input, output,
+  cached_input, cache_write, cache_write_1h }` prices the whole call, output included, when
+  `input_tokens` is more than `above` (cached and cache-written tokens count); its cache prices
+  fall back to its own `input` / `cache_write`; the estimate follows the same rule; a malformed
+  entry fails the price book load. `claude-haiku-5-5` has one above 100K tokens.
 - Cached prompt tokens (`usage.prompt_tokens_details.cached_tokens`) are billed at the row's
   `cached_input` price and stored on the ledger row; an upstream 429 is passed through as
   `429 upstream_rate_limited` with `Retry-After`, never as 502.
@@ -178,7 +183,7 @@ Bias toward caution over speed; for trivial tasks use judgment.
 - `make check` must be green before any commit: ruff (lint + format), mypy `--strict` on
   `src` and `tests`, pytest. Pre-commit is installed by `make install`.
 - Every module has a test module; new behaviour comes with a test in the same change.
-- Every design decision gets an ADR in `docs/adr/` (next number: 0037). ADR-0009 (evaluation
+- Every design decision gets an ADR in `docs/adr/` (next number: 0038). ADR-0009 (evaluation
   replay) is Proposed, not implemented.
 - Decimal for money everywhere; never float.
 - A schema change is a new revision in `migrations/versions` plus the same change in the models
@@ -224,7 +229,9 @@ Ollama, budget warn/block, team keys, rate limit). Section 4 Azure OpenAI passed
 match except 774 off-gateway test tokens, cost matches once the regional SKU is priced. 3d and
 5 passed on 2026-10-30. Section 4b (Claude Code behind the plugin, Anthropic API) passed
 2026-11-16: 50 calls on four Claude models, ledger equal to Anthropic's usage priced by hand, to
-Claude Code's own cost report and to LiteLLM's spend log.
+Claude Code's own cost report and to LiteLLM's spend log. Section 4c.11 (VS Code on the Azure
+LiteLLM, phases by model name, with and without cache marks set by the proxy) passed 2026-11-20
+with one finding, the Haiku price above 100K prompt tokens (ADR-0037).
 
 ## CI and release state
 

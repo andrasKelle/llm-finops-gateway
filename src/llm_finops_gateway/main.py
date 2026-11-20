@@ -952,6 +952,17 @@ def create_app(
                     reasoning=p.reasoning,
                 )
             )
+            if (long := p.long_prompt) is not None:
+                price_rows.append(
+                    PriceRow(
+                        model=f"{m} (prompt over {long.above:,} tokens)",
+                        provider=p.provider,
+                        input=long.input_per_million,
+                        output=long.output_per_million,
+                        cached_input=long.cached_input_per_million,
+                        reasoning=p.reasoning,
+                    )
+                )
         ctx = ReportContext(
             version=__version__,
             price_book_version=book.version,

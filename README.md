@@ -97,8 +97,10 @@ and walk-through: [examples/claude-code/](examples/claude-code/).
 
 GitHub Copilot works the same way through its custom endpoint settings, in VS Code and in
 Copilot CLI, on chat completions and on the Responses API (ADR-0029). A phase of the
-development cycle is a use case with its own model list and budget, and a run id ties the
-calls of one feature together: [examples/copilot/](examples/copilot/).
+development cycle is a use case with its own model list and budget, the model name can carry
+the phase so that a developer needs one key and no header (ADR-0036), and a run id ties the
+calls of one feature together. The example also shows how the proxy turns on Anthropic's prompt
+cache for an editor that does not ask for it: [examples/copilot/](examples/copilot/).
 
 ## Try it from a browser
 
@@ -233,6 +235,9 @@ default with a startup warning. `cached_input` prices the prompt tokens the prov
 from its cache (`usage.prompt_tokens_details.cached_tokens`), the way Azure and OpenAI bill them.
 `cache_write` and `cache_write_1h` price the prompt tokens written to the cache, the way
 Anthropic bills them (the Claude rows, served through the LiteLLM plugin).
+`long_prompt: { above: 100000, input: ..., output: ... }` is a second set of prices for a call
+whose prompt is longer than `above` tokens, the way Claude Haiku is billed above 100K: the
+whole call is priced with it, and the reservation follows the same rule (ADR-0037).
 `reasoning: true` marks the gpt-5 and o-series rows: the gateway sends `max_completion_tokens`
 instead of `max_tokens` and drops the temperature, which those models reject, so OpenAI SDK
 defaults keep working. Reasoning tokens are part of `completion_tokens`, billed as output and

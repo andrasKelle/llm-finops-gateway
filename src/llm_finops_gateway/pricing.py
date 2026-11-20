@@ -20,6 +20,19 @@ _USE_CASE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
 
 @dataclass(frozen=True)
+class LongPromptPrice:
+    """The prices of a call whose prompt is longer than ``above`` tokens (ADR-0037). A cache
+    price left out falls back as on the row itself, to this entry's own prices."""
+
+    above: int
+    input_per_million: Decimal
+    output_per_million: Decimal
+    cached_input_per_million: Decimal | None = None
+    cache_write_per_million: Decimal | None = None
+    cache_write_1h_per_million: Decimal | None = None
+
+
+@dataclass(frozen=True)
 class ModelPrice:
     input_per_million: Decimal
     output_per_million: Decimal
@@ -30,6 +43,7 @@ class ModelPrice:
     cache_write_1h_per_million: Decimal | None = None
     provider: str | None = None  # adapter that serves the model; None: the default provider
     reasoning: bool = False  # OpenAI reasoning family: max_completion_tokens, fixed temperature
+    long_prompt: LongPromptPrice | None = None  # a second set of prices for a long prompt
 
 
 class UnknownModelError(KeyError):
@@ -51,6 +65,32 @@ def money(value: Decimal | int | str) -> str:
     if d == d.to_integral():
         return str(d.quantize(Decimal(1)))
     return format(d, "f")
+
+
+_LONG_PROMPT_KEYS = {"above", "input", "output", "cached_input", "cache_write", "cache_write_1h"}
+
+
+def _optional(value: Any) -> Decimal | None:
+    return None if value is None else Decimal(str(value))
+
+
+def _long_prompt(path: Path, name: str, spec: Any) -> LongPromptPrice:
+    where = f"{path}: model '{name}': long_prompt"
+    if not isinstance(spec, dict) or "input" not in spec or "output" not in spec:
+        raise PriceBookError(f"{where} needs 'above', 'input' and 'output'")
+    if unknown := set(spec) - _LONG_PROMPT_KEYS:
+        raise PriceBookError(f"{where} does not take {sorted(unknown)}")
+    above = spec.get("above")
+    if not isinstance(above, int) or isinstance(above, bool) or above < 1:
+        raise PriceBookError(f"{where}: 'above' must be a number of prompt tokens, 1 or more")
+    return LongPromptPrice(
+        above=above,
+        input_per_million=Decimal(str(spec["input"])),
+        output_per_million=Decimal(str(spec["output"])),
+        cached_input_per_million=_optional(spec.get("cached_input")),
+        cache_write_per_million=_optional(spec.get("cache_write")),
+        cache_write_1h_per_million=_optional(spec.get("cache_write_1h")),
+    )
 
 
 class PriceBook:
@@ -121,6 +161,11 @@ class PriceBook:
                 cache_write_1h_per_million=None if write_1h is None else Decimal(str(write_1h)),
                 provider=None if provider is None else str(provider),
                 reasoning=bool(spec.get("reasoning", False)),
+                long_prompt=(
+                    _long_prompt(path, str(name), spec["long_prompt"])
+                    if "long_prompt" in spec
+                    else None
+                ),
             )
         for name, target in aliases.items():
             if target not in prices:
@@ -190,7 +235,9 @@ class PriceBook:
         ``cached_input_tokens`` were served from the provider's prompt cache (billed at
         ``cached_input``) and ``cache_write_input_tokens`` were written to it (billed at
         ``cache_write``); ``cache_write_1h_input_tokens`` is the part of the written tokens
-        with the one-hour lifetime (billed at ``cache_write_1h``). The rest costs ``input``."""
+        with the one-hour lifetime (billed at ``cache_write_1h``). The rest costs ``input``.
+        A row with ``long_prompt`` prices the whole call with that entry when ``input_tokens``
+        is more than its ``above`` (ADR-0037)."""
         counts = (
             input_tokens,
             output_tokens,
@@ -205,9 +252,12 @@ class PriceBook:
         if cache_write_1h_input_tokens > cache_write_input_tokens:
             raise ValueError("cache_write_1h_input_tokens cannot exceed cache_write_input_tokens")
         try:
-            price = self._prices[self.target(model)]
+            row = self._prices[self.target(model)]
         except KeyError as exc:
             raise UnknownModelError(model) from exc
+        price: ModelPrice | LongPromptPrice = row
+        if row.long_prompt is not None and input_tokens > row.long_prompt.above:
+            price = row.long_prompt
         cached_price = (
             price.input_per_million
             if price.cached_input_per_million is None

@@ -41,6 +41,7 @@ immutable once accepted; a later ADR supersedes an earlier one rather than editi
 | [0034](0034-rejections-speak-on-every-route.md) | A plugin rejection carries its explanation in the message on every route | Accepted |
 | [0035](0035-a-key-can-pin-its-project-and-use-case.md) | A LiteLLM key can pin its project and use case | Accepted |
 | [0036](0036-an-alias-can-name-its-use-case.md) | An alias can name the use case its calls belong to | Accepted |
+| [0037](0037-a-row-can-price-a-long-prompt.md) | A price book row can price a long prompt | Accepted |
 
 ## Template
 

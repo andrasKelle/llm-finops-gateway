@@ -130,6 +130,19 @@ def test_estimate_uses_chars_and_output_bound(price_book: PriceBook) -> None:
     assert estimate_cost(price_book, "free", msgs, None, 1024) == Decimal("0")
 
 
+def test_estimate_of_a_long_prompt_uses_the_long_prompt_prices(tmp_path: Path) -> None:
+    path = tmp_path / "pricing.yaml"
+    path.write_text(
+        "version: v\ncurrency: USD\nmodels:\n"
+        "  m: {input: 1, output: 2, long_prompt: {above: 1000, input: 5, output: 10}}\n"
+    )
+    book = PriceBook.from_yaml(path)
+    short = [{"role": "user", "content": "x" * 3_968}]  # 992 tokens + 8 overhead = 1,000
+    assert estimate_cost(book, "m", short, 100, 1024) == Decimal("0.0012")
+    long = [{"role": "user", "content": "x" * 3_972}]  # 1,001 tokens: (1001*5 + 100*10) / 1e6
+    assert estimate_cost(book, "m", long, 100, 1024) == Decimal("0.006005")
+
+
 # ---- PolicyEngine decisions -------------------------------------------------------------
 
 

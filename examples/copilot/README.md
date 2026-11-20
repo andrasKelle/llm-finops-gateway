@@ -134,6 +134,29 @@ returns the same as JSON, `/v1/finops/summary.csv` as CSV.
   test (its cap; the test machine had more tools enabled), about 87,000 input tokens per call
   and none of them cached: a one-word exchange cost 0.18 USD on Sonnet and 0.009 on Haiku.
   Fewer enabled tools mean a smaller prompt.
+- **The proxy can turn the cache on.** Copilot speaks the OpenAI format and marks nothing for
+  Anthropic's prompt cache, so every call above paid the full input price. LiteLLM can set the
+  mark for the client, per model in `config.yaml`:
+
+  ```yaml
+  - model_name: sdd-implement
+    litellm_params:
+      model: anthropic/claude-sonnet-5-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+      cache_control_injection_points:
+        - location: message
+          role: system
+  ```
+
+  Measured on 2026-11-20 with VS Code on chat completions: the mark on the system message
+  covered the tool definitions before it, 85,273 of about 95,000 prompt tokens. The first call
+  on a model writes them at 1.25 times the input price (0.24 USD on Sonnet), every call in
+  the next five minutes reads them at the cached price (0.04 to 0.05 USD where the uncached
+  call was 0.20). The cache is per model, so a switch of phase that switches the model writes
+  again. Copilot CLI and the Responses route were not measured with it.
+- **Haiku costs five times as much above 100K prompt tokens.** With 128 tool definitions VS
+  Code's prompt gets there after a few turns. The shipped price book has both sets of prices
+  for `claude-haiku-5-5` (`long_prompt`, ADR-0037), so the ledger and the budgets follow.
 - **Retries.** VS Code repeats a rejected call five times before it shows the error, so a
   rejection reaches the proxy six times. A budget rejection uses six slots of the team's rate
   limit window.
@@ -147,4 +170,8 @@ returns the same as JSON, `/v1/finops/summary.csv` as CSV.
   model, because a group cannot hold the same model id twice. With
   `sdd-plan: { alias_of: claude-opus-5-5, use_case: plan }` the name also says the phase
   (ADR-0036): the model entry needs no `X-Use-Case`, and a call to it that claims another phase
-  is refused with 403. This variant was not part of the measurements above.
+  is refused with 403. Measured on 2026-11-20 with VS Code and three such names, one per phase:
+  16 calls arrived without the header, and each was recorded under the phase of its name with
+  the model behind it in `model` and the name in `model_alias`. 15 of them cost the same in
+  the ledger and in LiteLLM's spend log; the sixteenth was a Haiku call above 100K prompt
+  tokens, which is where the second set of prices in the next point comes from.

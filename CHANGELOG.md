@@ -7,6 +7,13 @@ is called out here.
 
 ## [Unreleased]
 
+### Added
+- LiteLLM plugin: a key whose `finops` metadata block says `"pin": true` binds the project and
+  use case it carries. A call whose `X-Project` or `X-Use-Case` says something else is refused
+  with `403 project_not_allowed` or `403 use_case_not_allowed` before any provider call, so one
+  key per phase makes the phase a boundary instead of a label from the client's settings.
+  Without `pin` the key's values stay defaults and the headers win (ADR-0035, #97).
+
 ## [0.5.0] - 2026-11-19
 
 The Copilot release: GitHub Copilot (VS Code and CLI) behind the LiteLLM plugin on the Responses

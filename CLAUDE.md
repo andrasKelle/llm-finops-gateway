@@ -61,9 +61,9 @@ docs/database.md   ledger engines, schema, PostgreSQL roles (lfgadmin/lfg_app/lf
 docs/images/       README images; diagrams.py draws architecture.svg and architecture-litellm.svg
                    (`python docs/images/diagrams.py`, needs the [demo] extra)
 docs/              architecture.md, deployment.md, azure-setup.md, testing-plan.md, comparison.md,
-                   litellm.md, adr/0001..0034
-tests/             one test module per source module, 297 tests (+4 PostgreSQL tests when LFG_TEST_DATABASE_URL is set;
-                   the 28 LiteLLM plugin tests skip without the [litellm] extra), FakeProvider in conftest.py
+                   litellm.md, adr/0001..0035
+tests/             one test module per source module, 300 tests (+4 PostgreSQL tests when LFG_TEST_DATABASE_URL is set;
+                   the 31 LiteLLM plugin tests skip without the [litellm] extra), FakeProvider in conftest.py
 ```
 
 ## Behaviour that must not regress
@@ -107,6 +107,10 @@ tests/             one test module per source module, 297 tests (+4 PostgreSQL t
   `responses` / `aresponses`, the estimate reads `input`, `instructions`, `tools` and
   `max_output_tokens`, marker under `litellm_metadata`, settles from the success event, a
   rejection speaks as on `/v1/messages`. Other call types (embeddings, images) pass through.
+- Pinned keys (ADR-0035, plugin): a LiteLLM key's `finops` metadata block with `pin: true`
+  binds the project and use case it carries; a contradicting `X-Project` or `X-Use-Case` is
+  403 `project_not_allowed` / `use_case_not_allowed` before the policy check. Without `pin`
+  the key's values are defaults and the headers win.
 - Run id (ADR-0030): optional `X-Run-Id` (free text, at most 128 characters, else 400), stored
   in `cost_records.run_id`, echoed as `x_finops.run_id` and `X-FinOps-Run-Id`, in the FOCUS
   `Tags`; a label only, no policy reads it.
@@ -170,7 +174,7 @@ Bias toward caution over speed; for trivial tasks use judgment.
 - `make check` must be green before any commit: ruff (lint + format), mypy `--strict` on
   `src` and `tests`, pytest. Pre-commit is installed by `make install`.
 - Every module has a test module; new behaviour comes with a test in the same change.
-- Every design decision gets an ADR in `docs/adr/` (next number: 0035). ADR-0009 (evaluation
+- Every design decision gets an ADR in `docs/adr/` (next number: 0036). ADR-0009 (evaluation
   replay) is Proposed, not implemented.
 - Decimal for money everywhere; never float.
 - A schema change is a new revision in `migrations/versions` plus the same change in the models
@@ -264,8 +268,8 @@ Fixed and merged on 2026-10-28 (PRs #6 and #8), all green since:
 - `v0.5.0` (2026-11-19): the Copilot release (ADRs 0029 to 0034: Responses route in the plugin,
   run id, use case rules, reports by use case and run, model aliases, rejections that name
   their reason on every plugin route; PRs #88 to #94). Schema revisions 0004 and 0005, so
-  `ledger migrate` is needed; the Azure apps stay on `v0.4.2` (schema 0003) until that has run
-  there.
+  `ledger migrate` is needed. The Azure database was migrated to revision 0005 and the four apps
+  moved to `v0.5.0` the same evening.
 
 Repository settings: Workflow permissions "Read and write" (needed by `cla` and `release`);
 automatic deletion of merged head branches is on; Discussions, topics, Dependabot alerts and

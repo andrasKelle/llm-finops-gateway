@@ -291,6 +291,29 @@ async def test_cached_tokens_are_priced_at_the_cached_rate(
     assert headers["X-FinOps-Cached-Input-Tokens"] == "100"
 
 
+async def test_long_prompt_is_settled_with_its_own_prices(tmp_path: Path, ledger: Ledger) -> None:
+    (tmp_path / "pricing.yaml").write_text(
+        'version: "long"\ncurrency: USD\nmodels:\n'
+        "  gpt-4o-mini:\n"
+        "    { input: 0.1, output: 0.5, cached_input: 0.01,\n"
+        "      long_prompt: { above: 100000, input: 0.5, output: 2.5, cached_input: 0.05 } }\n"
+    )
+    plugin = FinOpsPlugin(
+        price_book=PriceBook.from_yaml(tmp_path / "pricing.yaml"),
+        policies=PolicySet.empty(),
+        ledger=ledger,
+    )
+    data = await plugin.async_pre_call_hook(key(), None, request(), "acompletion")
+    assert data is not None
+    headers = await plugin.async_post_call_response_headers_hook(
+        data, key(), response(prompt=102_646, completion=586, cached=85_273)
+    )
+    assert headers is not None
+    assert headers["X-FinOps-Cost-USD"] == "0.01441515"  # the call of #103, as LiteLLM priced it
+    (row,) = ledger.rows(*ALL_TIME)
+    assert row.cost_usd == Decimal("0.01441515")
+
+
 async def test_budget_blocks_with_403_once_spent(plugin: FinOpsPlugin, ledger: Ledger) -> None:
     data = await plugin.async_pre_call_hook(key(), None, request(), "acompletion")
     assert data is not None

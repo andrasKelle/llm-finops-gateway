@@ -528,3 +528,44 @@ def test_alias_with_a_use_case_carries_the_phase(
             "message": "model 'sdd-plan' is for use case 'plan', not 'implement'",
         }
         assert len(fake_provider.calls) == 2
+
+
+def test_long_prompt_is_billed_and_recorded_with_its_own_prices(
+    tmp_path: Path, ledger: Ledger
+) -> None:
+    pricing = tmp_path / "pricing.yaml"
+    pricing.write_text(
+        PRICING_YAML
+        + "  tiered: {input: 1, output: 2, cached_input: 0.1,"
+        + " long_prompt: {above: 1000, input: 5, output: 10, cached_input: 0.5}}\n"
+    )
+    settings = Settings(
+        provider=ProviderKind.OLLAMA,
+        auth_mode="headers",
+        pricing_path=pricing,
+        database_url="sqlite:///:memory:",
+    )
+    costs = []
+    for prompt_tokens in (1_000, 1_001):
+        app = create_app(
+            settings,
+            price_book=PriceBook.from_yaml(pricing),
+            policies=PolicySet.empty(),
+            keyring=KeyRing.empty(),
+            ledger=ledger,
+            provider=FakeProvider(
+                input_tokens=prompt_tokens, output_tokens=100, cached_input_tokens=600
+            ),
+        )
+        with TestClient(app) as c:
+            r = c.post(
+                "/v1/chat/completions", json={**BODY, "model": "tiered"}, headers=ATTR_HEADERS
+            )
+        assert r.status_code == 200, r.text
+        assert r.headers["X-FinOps-Cost-USD"] == r.json()["x_finops"]["cost_usd"]
+        costs.append(r.headers["X-FinOps-Cost-USD"])
+    # 1,000 tokens: (400*1 + 600*0.1 + 100*2) / 1e6; 1,001: (401*5 + 600*0.5 + 100*10) / 1e6
+    assert costs == ["0.00066", "0.003305"]
+    now = datetime.now(UTC)
+    rows = ledger.rows(now - timedelta(hours=1), now + timedelta(hours=1))
+    assert [row.cost_usd for row in rows] == [Decimal("0.00066"), Decimal("0.003305")]

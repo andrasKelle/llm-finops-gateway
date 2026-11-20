@@ -7,6 +7,19 @@ is called out here.
 
 ## [Unreleased]
 
+### Added
+- A price book row may carry `long_prompt`, a threshold and a second set of prices:
+  `long_prompt: { above: 100000, input: 0.50, output: 2.50, ... }`. A call whose prompt is
+  longer than `above` tokens (cached and cache-written tokens included) is priced with it as a
+  whole, and the reservation follows the same rule; the report's price book view lists it as a
+  second line. Gateway and plugin, no schema revision (ADR-0037, #103).
+
+### Fixed
+- `claude-haiku-5-5` calls with a prompt above 100K tokens were priced at a fifth of their
+  cost: the shipped price book (now `2026-11-20`) had one set of prices for a model that has
+  two. Measured with VS Code behind the plugin, one call: 0.00288303 USD in the ledger,
+  0.01441515 in LiteLLM's spend log. Rows already recorded keep their cost.
+
 ## [0.5.2] - 2026-11-20
 
 The model name can carry the phase. No schema revision: a database migrated for 0.5.0 needs

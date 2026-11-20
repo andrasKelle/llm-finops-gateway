@@ -246,3 +246,98 @@ def test_alias_can_carry_a_use_case(tmp_path: Path) -> None:
     assert book.use_case_of("priced") is None and book.use_case_of("unknown") is None
     path.write_text(ALIAS_YAML)
     assert PriceBook.from_yaml(path).use_case_of("plan") is None
+
+
+# ---- long prompt prices (ADR-0037) ----------------------------------------------------------
+
+LONG_PROMPT_BOOK = """\
+version: v
+currency: USD
+models:
+  haiku:
+    input: 0.1
+    output: 0.5
+    cached_input: 0.01
+    cache_write: 0.125
+    cache_write_1h: 0.2
+    long_prompt:
+      { above: 100000, input: 0.5, output: 2.5, cached_input: 0.05, cache_write: 0.625,
+        cache_write_1h: 1 }
+  bare: {input: 1, output: 2, cached_input: 0.1, long_prompt: {above: 1000, input: 3, output: 4}}
+  role: {alias_of: haiku}
+"""
+
+
+@pytest.fixture
+def long_prompt_book(tmp_path: Path) -> PriceBook:
+    path = tmp_path / "long.yaml"
+    path.write_text(LONG_PROMPT_BOOK)
+    return PriceBook.from_yaml(path)
+
+
+def test_long_prompt_is_priced_with_its_own_prices(long_prompt_book: PriceBook) -> None:
+    # the call that showed the gap (#103): 102,646 prompt tokens, 85,273 of them read from the
+    # cache, 586 output tokens. (17373*0.5 + 85273*0.05 + 586*2.5) / 1e6
+    cost = long_prompt_book.cost("haiku", 102_646, 586, cached_input_tokens=85_273)
+    assert cost == Decimal("0.01441515")
+    # an alias is priced as its target, long prompt included
+    assert long_prompt_book.cost("role", 102_646, 586, cached_input_tokens=85_273) == cost
+    # cache writes of a long prompt: (1000*0.5 + 150000*0.625 + 50000*1) / 1e6
+    written = long_prompt_book.cost(
+        "haiku", 201_000, 0, cache_write_input_tokens=200_000, cache_write_1h_input_tokens=50_000
+    )
+    assert written == Decimal("0.14425")
+
+
+def test_prompt_at_the_threshold_keeps_the_base_prices(long_prompt_book: PriceBook) -> None:
+    assert long_prompt_book.cost("haiku", 100_000, 1_000) == Decimal("0.0105")
+    # one token more and the whole call, output included, is priced as a long prompt
+    assert long_prompt_book.cost("haiku", 100_001, 1_000) == Decimal("0.0525005")
+
+
+def test_long_prompt_without_cache_prices_falls_back_to_its_own_input(
+    long_prompt_book: PriceBook,
+) -> None:
+    # the long prompt names no cache prices: cached and written tokens cost its input price,
+    # not the base row's cached_input
+    cost = long_prompt_book.cost(
+        "bare", 2_000, 0, cached_input_tokens=1_000, cache_write_input_tokens=500
+    )
+    assert cost == Decimal("0.006")
+
+
+@pytest.mark.parametrize(
+    "long_prompt",
+    [
+        "5",  # not a mapping
+        "{input: 3, output: 4}",  # no threshold
+        "{above: 0, input: 3, output: 4}",
+        "{above: 1.5, input: 3, output: 4}",
+        "{above: true, input: 3, output: 4}",
+        "{above: 1000, input: 3}",  # no output price
+        "{above: 1000, output: 4}",  # no input price
+        "{above: 1000, input: 3, output: 4, cached: 1}",  # unknown key
+    ],
+)
+def test_malformed_long_prompt_is_rejected(tmp_path: Path, long_prompt: str) -> None:
+    path = tmp_path / "bad.yaml"
+    path.write_text(
+        "version: v\ncurrency: USD\nmodels:\n"
+        f"  m: {{input: 1, output: 2, long_prompt: {long_prompt}}}\n"
+    )
+    with pytest.raises(PriceBookError, match="long_prompt"):
+        PriceBook.from_yaml(path)
+
+
+def test_repo_price_book_has_the_long_prompt_prices_of_haiku() -> None:
+    book = PriceBook.from_yaml(Path(__file__).parents[1] / "config" / "pricing.yaml")
+    base = book.price("claude-haiku-5-5")
+    long = base.long_prompt
+    assert long is not None and long.above == 100_000
+    assert long.input_per_million == base.input_per_million * 5
+    assert long.output_per_million == base.output_per_million * 5
+    assert base.cached_input_per_million is not None
+    assert long.cached_input_per_million == base.cached_input_per_million * 5
+    assert long.cache_write_per_million == long.input_per_million * Decimal("1.25")
+    assert long.cache_write_1h_per_million == long.input_per_million * 2
+    assert book.price("claude-sonnet-5-5").long_prompt is None

@@ -391,3 +391,19 @@ def test_budget_table_has_a_row_per_use_case_budget() -> None:
         '<tr data-team="t"><td class="id">t</td><td class="id">p</td>'
         '<td class="id">implement</td><td class="id">-</td>'
     )
+
+
+def test_price_book_view_lists_the_long_prompt_prices(ledger: Ledger, tmp_path: Path) -> None:
+    pricing = tmp_path / "pricing.yaml"
+    pricing.write_text(
+        "version: v\ncurrency: USD\nmodels:\n"
+        "  tiered: {input: 1, output: 2, cached_input: 0.1,"
+        " long_prompt: {above: 100000, input: 5, output: 10, cached_input: 0.5}}\n"
+    )
+    with _app("headers", pricing, PriceBook.from_yaml(pricing), ledger, tmp_path) as c:
+        text = c.get("/finops").text
+    assert "<td>tiered</td>" in text
+    assert "<td>tiered (prompt over 100,000 tokens)</td>" in text
+    row = re.search(r"<tr><td>tiered \(prompt over.*?</tr>", text)
+    assert row is not None
+    assert re.findall(r'data-amt="([0-9.]+)"', row.group(0)) == ["5", "10", "0.5"]

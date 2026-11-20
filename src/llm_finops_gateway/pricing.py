@@ -15,6 +15,9 @@ from typing import Any
 
 import yaml
 
+# the shape of a use case name, as on X-Use-Case
+_USE_CASE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
 
 @dataclass(frozen=True)
 class ModelPrice:
@@ -59,10 +62,13 @@ class PriceBook:
         version: str,
         currency: str,
         aliases: dict[str, str] | None = None,
+        alias_use_cases: dict[str, str] | None = None,
     ) -> None:
         self._prices = dict(prices)
         # alias -> priced row: a name clients call that is priced as its target (ADR-0033)
         self._aliases = dict(aliases or {})
+        # alias -> the use case a call to that name belongs to (ADR-0036)
+        self._alias_use_cases = dict(alias_use_cases or {})
         self.version = version
         self.currency = currency
 
@@ -81,14 +87,29 @@ class PriceBook:
             raise PriceBookError(f"{path}: 'currency' must be a 3-letter code like USD or EUR")
         prices: dict[str, ModelPrice] = {}
         aliases: dict[str, str] = {}
+        alias_use_cases: dict[str, str] = {}
         for name, spec in raw["models"].items():
             if isinstance(spec, dict) and "alias_of" in spec:
-                if len(spec) != 1:
-                    raise PriceBookError(f"{path}: alias row '{name}' takes only 'alias_of'")
+                if set(spec) - {"alias_of", "use_case"}:
+                    raise PriceBookError(
+                        f"{path}: alias row '{name}' takes only 'alias_of' and 'use_case'"
+                    )
                 aliases[str(name)] = str(spec["alias_of"])
+                if "use_case" in spec:
+                    use_case = str(spec["use_case"])
+                    if not _USE_CASE_RE.fullmatch(use_case):
+                        raise PriceBookError(
+                            f"{path}: alias row '{name}': use_case must match "
+                            f"{_USE_CASE_RE.pattern}"
+                        )
+                    alias_use_cases[str(name)] = use_case
                 continue
             if not isinstance(spec, dict) or "input" not in spec or "output" not in spec:
                 raise PriceBookError(f"{path}: model '{name}' needs 'input' and 'output'")
+            if "use_case" in spec:
+                raise PriceBookError(
+                    f"{path}: model '{name}': 'use_case' belongs on an alias row (alias_of)"
+                )
             cached = spec.get("cached_input")
             write, write_1h = spec.get("cache_write"), spec.get("cache_write_1h")
             provider = spec.get("provider")
@@ -106,7 +127,13 @@ class PriceBook:
                 raise PriceBookError(
                     f"{path}: model '{name}': alias_of must name a priced row, got '{target}'"
                 )
-        return cls(prices, version=str(raw["version"]), currency=currency, aliases=aliases)
+        return cls(
+            prices,
+            version=str(raw["version"]),
+            currency=currency,
+            aliases=aliases,
+            alias_use_cases=alias_use_cases,
+        )
 
     def models(self) -> list[str]:
         """The priced rows; aliases are in :meth:`aliases`."""
@@ -121,6 +148,10 @@ class PriceBook:
     def target(self, model: str) -> str:
         """The priced row behind ``model``: itself, or the row an alias points at."""
         return self._aliases.get(model, model)
+
+    def use_case_of(self, model: str) -> str | None:
+        """The use case an alias row names (ADR-0036); None for every other name."""
+        return self._alias_use_cases.get(model)
 
     def has(self, model: str) -> bool:
         return self.target(model) in self._prices

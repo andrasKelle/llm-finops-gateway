@@ -7,6 +7,14 @@ is called out here.
 
 ## [Unreleased]
 
+### Added
+- An alias row in the price book may name the use case its calls belong to:
+  `sdd-plan: { alias_of: claude-opus-5-5, use_case: plan }`. A call to it is recorded and
+  governed under that use case without `X-Use-Case`, and a call that says another one (header,
+  or a pinned key in the LiteLLM plugin) is refused with `403 use_case_not_allowed` before any
+  provider call. One key per developer is then enough for rules per phase; gateway and plugin
+  (ADR-0036, #100). `use_case` on a priced row is rejected when the price book loads.
+
 ## [0.5.1] - 2026-11-20
 
 Pinned keys in the LiteLLM plugin. No schema revision: a database migrated for 0.5.0 needs

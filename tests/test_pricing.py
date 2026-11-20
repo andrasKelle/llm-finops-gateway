@@ -224,6 +224,8 @@ def test_alias_is_priced_and_served_as_its_target(tmp_path: Path) -> None:
         "plan: {alias_of: nowhere}",  # the target has no price
         "plan: {alias_of: again}\n  again: {alias_of: priced}",  # no chains
         "plan: {alias_of: priced, input: 1, output: 1}",  # an alias has no price of its own
+        "plan: {alias_of: priced, use_case: 'not a tag'}",  # a use case is a tag
+        "plan: {alias_of: priced}\n  other: {input: 1, output: 1, use_case: plan}",  # alias only
     ],
 )
 def test_malformed_alias_is_rejected(tmp_path: Path, row: str) -> None:
@@ -231,3 +233,16 @@ def test_malformed_alias_is_rejected(tmp_path: Path, row: str) -> None:
     path.write_text(ALIAS_YAML.replace("plan: {alias_of: priced}", row))
     with pytest.raises(PriceBookError, match="alias_of|alias row"):
         PriceBook.from_yaml(path)
+
+
+def test_alias_can_carry_a_use_case(tmp_path: Path) -> None:
+    path = tmp_path / "pricing.yaml"
+    path.write_text(
+        ALIAS_YAML.replace("plan: {alias_of: priced}", "plan: {alias_of: priced, use_case: plan}")
+    )
+    book = PriceBook.from_yaml(path)
+    assert book.use_case_of("plan") == "plan" and book.target("plan") == "priced"
+    # only an alias that names one carries a use case
+    assert book.use_case_of("priced") is None and book.use_case_of("unknown") is None
+    path.write_text(ALIAS_YAML)
+    assert PriceBook.from_yaml(path).use_case_of("plan") is None

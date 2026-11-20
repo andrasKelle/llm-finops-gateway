@@ -474,3 +474,57 @@ def test_alias_is_called_priced_and_budgeted_as_its_target(
         ]
         ids = [m["id"] for m in c.get("/v1/models").json()["data"]]
         assert ids == ["free", "plan", "priced"]
+
+
+def test_alias_with_a_use_case_carries_the_phase(
+    tmp_path: Path, ledger: Ledger, fake_provider: FakeProvider
+) -> None:
+    pricing = tmp_path / "pricing.yaml"
+    pricing.write_text(PRICING_YAML + "  sdd-plan: {alias_of: priced, use_case: plan}\n")
+    policies = tmp_path / "policies.yaml"
+    policies.write_text(
+        'version: "a"\ndefaults:\n  allowed_models: ["priced"]\n'
+        "teams:\n  platform:\n    projects:\n      demo:\n        use_cases:\n"
+        "          plan: {budget: {monthly_usd: 1}}\n"
+    )
+    settings = Settings(
+        provider=ProviderKind.OLLAMA,
+        auth_mode="headers",
+        pricing_path=pricing,
+        database_url="sqlite:///:memory:",
+    )
+    app = create_app(
+        settings,
+        price_book=PriceBook.from_yaml(pricing),
+        policies=PolicySet.from_yaml(policies),
+        keyring=KeyRing.empty(),
+        ledger=ledger,
+        provider=fake_provider,
+    )
+    silent = {"X-Team": "platform", "X-Project": "demo"}
+    body = {**BODY, "model": "sdd-plan"}
+    with TestClient(app) as c:
+        # no X-Use-Case: the name the client called says the phase, and its budget applies
+        r = c.post("/v1/chat/completions", json=body, headers=silent)
+        assert r.status_code == 200, r.text
+        assert r.headers["X-FinOps-Use-Case-Budget-Limit-USD"] == "1"
+        # a header that agrees is served too
+        agreeing = c.post(
+            "/v1/chat/completions", json=body, headers={**silent, "X-Use-Case": "plan"}
+        )
+        assert agreeing.status_code == 200, agreeing.text
+        now = datetime.now(UTC)
+        rows = ledger.rows(now - timedelta(hours=1), now + timedelta(hours=1))
+        assert [(row.use_case, row.model, row.model_alias) for row in rows] == [
+            ("plan", "priced", "sdd-plan")
+        ] * 2
+        # a header that says another phase is refused before the provider is called
+        other = c.post(
+            "/v1/chat/completions", json=body, headers={**silent, "X-Use-Case": "implement"}
+        )
+        assert other.status_code == 403
+        assert other.json()["detail"] == {
+            "error": "use_case_not_allowed",
+            "message": "model 'sdd-plan' is for use case 'plan', not 'implement'",
+        }
+        assert len(fake_provider.calls) == 2

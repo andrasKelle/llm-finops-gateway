@@ -906,3 +906,46 @@ async def test_alias_in_litellm_mode_is_priced_and_listed_as_its_target(
         "sdd-plan",
         Decimal("0.00000195"),
     )
+
+
+async def test_alias_with_a_use_case_carries_the_phase_in_litellm_mode(
+    tmp_path: Path, ledger: Ledger
+) -> None:
+    (tmp_path / "pricing.yaml").write_text(
+        PRICING + "  sdd-plan: { alias_of: gpt-4o-mini, use_case: plan }\n"
+    )
+    (tmp_path / "policies.yaml").write_text(
+        'version: "a"\ndefaults:\n  allowed_models: ["gpt-4o-mini"]\n'
+    )
+    plugin = FinOpsPlugin(
+        price_book=PriceBook.from_yaml(tmp_path / "pricing.yaml"),
+        policies=PolicySet.from_yaml(tmp_path / "policies.yaml"),
+        ledger=ledger,
+    )
+    # one key, no header: the model name says the phase; a key's default does not override it
+    plain = key(team="dev", alias="dev-key")
+    loose = key(team="dev", alias="loose-key", metadata={META: {"use_case": "implement"}})
+    for k in (plain, loose):
+        data = await plugin.async_pre_call_hook(k, None, request(model="sdd-plan"), "acompletion")
+        assert data is not None
+        await plugin.async_post_call_response_headers_hook(data, k, response())
+    assert [(r.use_case, r.model_alias) for r in ledger.rows(*ALL_TIME)] == [
+        ("plan", "sdd-plan")
+    ] * 2
+
+    # a header that says another phase, and a key pinned to another phase, are refused
+    claiming = request(model="sdd-plan")
+    claiming["proxy_server_request"]["headers"]["x-use-case"] = "implement"
+    pinned = key(
+        team="dev", alias="impl-key", metadata={META: {"use_case": "implement", "pin": True}}
+    )
+    for k, data in ((plain, claiming), (pinned, request(model="sdd-plan"))):
+        with pytest.raises(HTTPException) as exc:
+            await plugin.async_pre_call_hook(k, None, data, "acompletion")
+        assert exc.value.status_code == 403
+        detail = detail_of(exc.value)
+        assert detail["code"] == "use_case_not_allowed"
+        assert detail["error"] == (
+            "use_case_not_allowed: model 'sdd-plan' is for use case 'plan', not 'implement'"
+        )
+    assert len(ledger.rows(*ALL_TIME)) == 2

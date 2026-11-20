@@ -40,6 +40,7 @@ immutable once accepted; a later ADR supersedes an earlier one rather than editi
 | [0033](0033-model-aliases.md) | A price book alias is a name that is priced and governed as its target | Accepted |
 | [0034](0034-rejections-speak-on-every-route.md) | A plugin rejection carries its explanation in the message on every route | Accepted |
 | [0035](0035-a-key-can-pin-its-project-and-use-case.md) | A LiteLLM key can pin its project and use case | Accepted |
+| [0036](0036-an-alias-can-name-its-use-case.md) | An alias can name the use case its calls belong to | Accepted |
 
 ## Template
 

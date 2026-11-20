@@ -7,6 +7,11 @@ is called out here.
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-11-20
+
+The model name can carry the phase. No schema revision: a database migrated for 0.5.0 needs
+nothing.
+
 ### Added
 - An alias row in the price book may name the use case its calls belong to:
   `sdd-plan: { alias_of: claude-opus-5-5, use_case: plan }`. A call to it is recorded and
@@ -366,7 +371,8 @@ First public release.
   results, comparison with existing gateways, ADRs 0001 to 0009, CONTRIBUTING, GOVERNANCE,
   CODE_OF_CONDUCT, SECURITY, CLA, MAINTAINERS.
 
-[Unreleased]: https://github.com/andrasKelle/llm-finops-gateway/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/andrasKelle/llm-finops-gateway/compare/v0.5.2...HEAD
+[0.5.2]: https://github.com/andrasKelle/llm-finops-gateway/releases/tag/v0.5.2
 [0.5.1]: https://github.com/andrasKelle/llm-finops-gateway/releases/tag/v0.5.1
 [0.5.0]: https://github.com/andrasKelle/llm-finops-gateway/releases/tag/v0.5.0
 [0.4.2]: https://github.com/andrasKelle/llm-finops-gateway/releases/tag/v0.4.2

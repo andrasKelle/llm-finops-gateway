@@ -13,6 +13,7 @@ import time
 import uuid
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Annotated, Any, Literal
@@ -25,7 +26,7 @@ from .alerts import Alerter
 from .attribution import Attribution, resolve_attribution
 from .auth import KeyRing
 from .config import ProviderKind, Settings
-from .enforcement import budget_headers, cost_headers, rejection
+from .enforcement import alias_use_case, budget_headers, cost_headers, rejection
 from .focus import focus_csv
 from .ledger import CostEntry, Ledger
 from .litellm_ui import (
@@ -358,6 +359,13 @@ def create_app(
         alias = req.model if book.is_alias(req.model) else None
         if alias is not None:
             req = req.model_copy(update={"model": book.target(alias)})
+            # The alias may name the use case its calls belong to (ADR-0036): a call that
+            # says another one is refused, one that says nothing is recorded under it.
+            if bound := book.use_case_of(alias):
+                said = None if attr.use_case == "unspecified" else attr.use_case
+                if (mismatch := alias_use_case(alias, bound, said)) is not None:
+                    raise HTTPException(status_code=403, detail=mismatch)
+                attr = replace(attr, use_case=bound)
         engine: PolicyEngine = state.policy_engine
         ledger: Ledger = state.ledger
         provider: Provider = state.routes.get(req.model, state.provider)

@@ -61,9 +61,9 @@ docs/database.md   ledger engines, schema, PostgreSQL roles (lfgadmin/lfg_app/lf
 docs/images/       README images; diagrams.py draws architecture.svg and architecture-litellm.svg
                    (`python docs/images/diagrams.py`, needs the [demo] extra)
 docs/              architecture.md, deployment.md, azure-setup.md, testing-plan.md, comparison.md,
-                   litellm.md, adr/0001..0035
-tests/             one test module per source module, 300 tests (+4 PostgreSQL tests when LFG_TEST_DATABASE_URL is set;
-                   the 31 LiteLLM plugin tests skip without the [litellm] extra), FakeProvider in conftest.py
+                   litellm.md, adr/0001..0036
+tests/             one test module per source module, 305 tests (+4 PostgreSQL tests when LFG_TEST_DATABASE_URL is set;
+                   the 32 LiteLLM plugin tests skip without the [litellm] extra), FakeProvider in conftest.py
 ```
 
 ## Behaviour that must not regress
@@ -120,10 +120,14 @@ tests/             one test module per source module, 300 tests (+4 PostgreSQL t
 - Cached prompt tokens (`usage.prompt_tokens_details.cached_tokens`) are billed at the row's
   `cached_input` price and stored on the ledger row; an upstream 429 is passed through as
   `429 upstream_rate_limited` with `Retry-After`, never as 502.
-- Aliases (ADR-0033): a price book row `{ alias_of: <priced row> }` (nothing else on the row, no
-  chains); the call is priced, allow-listed and budgeted as the target, the gateway calls the
-  upstream with the target, the ledger row has `model` = target and `model_alias` = the name
-  called (revision `0005`).
+- Aliases (ADR-0033): a price book row `{ alias_of: <priced row> }` (only `use_case` may sit
+  next to it, no chains); the call is priced, allow-listed and budgeted as the target, the
+  gateway calls the upstream with the target, the ledger row has `model` = target and
+  `model_alias` = the name called (revision `0005`).
+- Use case from the alias (ADR-0036): `{ alias_of: X, use_case: U }` makes a call to that name
+  belong to `U` without a header; a call that says another use case (`X-Use-Case`, or a pinned
+  key in the plugin) is 403 `use_case_not_allowed` before the policy check; an unpinned key
+  default gives way. `use_case` on a priced row fails the price book load.
 - A price book row's `reasoning: true` turns the client's `max_tokens` into
   `max_completion_tokens` and drops `temperature` before the upstream call.
 - A price book row's `provider` picks the adapter; `LFG_PROVIDER` is only the default
@@ -174,7 +178,7 @@ Bias toward caution over speed; for trivial tasks use judgment.
 - `make check` must be green before any commit: ruff (lint + format), mypy `--strict` on
   `src` and `tests`, pytest. Pre-commit is installed by `make install`.
 - Every module has a test module; new behaviour comes with a test in the same change.
-- Every design decision gets an ADR in `docs/adr/` (next number: 0036). ADR-0009 (evaluation
+- Every design decision gets an ADR in `docs/adr/` (next number: 0037). ADR-0009 (evaluation
   replay) is Proposed, not implemented.
 - Decimal for money everywhere; never float.
 - A schema change is a new revision in `migrations/versions` plus the same change in the models

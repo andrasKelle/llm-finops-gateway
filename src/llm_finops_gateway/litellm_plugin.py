@@ -37,7 +37,7 @@ from prometheus_client import REGISTRY
 from .alerts import Alerter
 from .attribution import Attribution, attribution_from_headers
 from .config import Settings
-from .enforcement import budget_headers, cost_headers, rejection
+from .enforcement import alias_use_case, budget_headers, cost_headers, rejection
 from .ledger import CostEntry, Ledger
 from .metrics import Metrics
 from .policy import BudgetStatus, PolicyEngine, PolicySet, estimate_cost, project_scope
@@ -285,7 +285,8 @@ class FinOpsPlugin(CustomLogger):
         # win when present, unless the block says `pin: true`: then what the key carries is
         # binding and a header that says something else is refused (ADR-0035).
         defaults = _key_defaults(user_api_key_dict)
-        if _key_block(user_api_key_dict).get("pin") is True:
+        pinned = _key_block(user_api_key_dict).get("pin") is True
+        if pinned:
             for field, header, noun in (
                 ("project", "x-project", "project"),
                 ("use_case", "x-use-case", "use case"),
@@ -319,6 +320,14 @@ class FinOpsPlugin(CustomLogger):
                     }
                 ),
             )
+        # An alias row may name the use case its calls belong to (ADR-0036). A header or a
+        # pinned key that says another one is refused; a key's default gives way to it.
+        model = str(data.get("model") or "")
+        if bound := book.use_case_of(model):
+            said = headers.get("x-use-case") or (defaults.get("use_case") if pinned else None)
+            if (mismatch := alias_use_case(model, bound, said)) is not None:
+                raise HTTPException(status_code=403, detail=_spoken({**mismatch, "team": team}))
+            use_case = bound
         base = attribution_from_headers(team, project, use_case, headers.get("x-run-id"))
         attr = Attribution(
             team=base.team,
@@ -328,7 +337,6 @@ class FinOpsPlugin(CustomLogger):
             run_id=base.run_id,
         )
 
-        model = str(data.get("model") or "")
         if not book.has(model):
             self._count(attr.team, model, "unpriced")
             raise HTTPException(status_code=422, detail=str(UnknownModelError(model)))

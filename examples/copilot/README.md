@@ -115,9 +115,9 @@ returns the same as JSON, `/v1/finops/summary.csv` as CSV.
 
 - **Client settings are not the control.** The headers in `chatLanguageModels.json` are what
   the developer's machine says, and one edited line claims another phase. That is fine for a
-  walk-through and for attribution inside a team's budget. Where the phase must hold, give each
-  phase a pinned key as above (in VS Code: one model group per key) and issue the keys
-  centrally; the settings then carry a URL and a model name and nothing else that matters.
+  walk-through and for attribution inside a team's budget. Where the phase must hold, let the
+  model name carry it: an alias with a use case (next point) needs no header and one key per
+  developer. Pinned keys as above are for pipelines and agents, which are few.
 - **Only what goes through the endpoint is recorded.** The coding agent that runs on GitHub's
   side and inline suggestions do not use these settings; their usage is in GitHub's own Copilot
   usage metrics.
@@ -144,4 +144,7 @@ returns the same as JSON, `/v1/finops/summary.csv` as CSV.
 - **A role instead of a model.** A price book row `sdd-plan: { alias_of: claude-opus-5-5 }` and a
   LiteLLM `model_name: sdd-plan` let clients call the phase by name; changing the model behind
   it is then one reviewed line (ADR-0033). In VS Code this is also how two phases share a
-  model, because a group cannot hold the same model id twice.
+  model, because a group cannot hold the same model id twice. With
+  `sdd-plan: { alias_of: claude-opus-5-5, use_case: plan }` the name also says the phase
+  (ADR-0036): the model entry needs no `X-Use-Case`, and a call to it that claims another phase
+  is refused with 403. This variant was not part of the measurements above.

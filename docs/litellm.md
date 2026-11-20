@@ -108,6 +108,21 @@ with the key, or none, is served. Use it for one key per phase of a development 
 client's settings say then cannot move a call into another phase. The pin is as strong as key
 issuance, so hand out keys, not the right to create them.
 
+Pinned keys suit pipelines and agents. For people, one key each is enough when the model name
+carries the phase (ADR-0036): give the alias a use case in the price book and a `model_name`
+in LiteLLM's config,
+
+```yaml
+# pricing.yaml
+  sdd-plan: { alias_of: claude-opus-5-5, use_case: plan }
+# LiteLLM config
+  - model_name: sdd-plan
+    litellm_params: { model: anthropic/claude-opus-5-5, api_key: os.environ/ANTHROPIC_API_KEY }
+```
+
+and a call to `sdd-plan` is recorded and governed under `plan` without any header. A call to
+it that says another use case, by header or by a pinned key, is `403 use_case_not_allowed`.
+
 ## Try it locally
 
 `examples/litellm/docker-compose.yml` starts four services next to a PostgreSQL store for

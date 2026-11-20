@@ -241,7 +241,10 @@ up entirely by reasoning and return an empty message with `finish_reason: length
 
 A row can also be an alias: `sdd-plan: { alias_of: claude-opus-5-5 }` is a name clients may
 call that is priced, allow-listed and budgeted as its target, with both names on the ledger
-row (ADR-0033). Pointing a role at another model is then one reviewed line.
+row (ADR-0033). Pointing a role at another model is then one reviewed line. An alias may also
+name the use case its calls belong to, `sdd-plan: { alias_of: claude-opus-5-5, use_case: plan }`:
+the model name then carries the phase, and a call that says another use case is
+`403 use_case_not_allowed` (ADR-0036).
 
 ### The response
 
@@ -342,7 +345,7 @@ without usage, the call is billed at the reservation estimate and the final even
 is recorded and the client receives one `data: {"error": ...}` event (ADR-0012).
 
 Other rejections: `401 missing_api_key / invalid_api_key / api_key_expired / api_key_disabled`,
-`403 team_mismatch / project_not_allowed / model_not_allowed`, `429 rate_limited` with
+`403 team_mismatch / project_not_allowed / use_case_not_allowed / model_not_allowed`, `429 rate_limited` with
 `Retry-After`, `422` unpriced model, `400` missing project, `429 upstream_rate_limited` when
 the provider throttles (its `Retry-After` is passed through), `502` upstream error (in both
 upstream cases nothing is recorded and the reservation is released).

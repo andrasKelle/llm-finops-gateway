@@ -15,6 +15,17 @@ from .policy import BudgetStatus, PolicyDecision
 from .pricing import money
 
 
+def alias_use_case(alias: str, bound: str, said: str | None) -> dict[str, str] | None:
+    """An alias row may name the use case its calls belong to (ADR-0036): the body of the 403
+    for a call that says another one, None when the call agrees or says nothing."""
+    if not said or said == bound:
+        return None
+    return {
+        "error": "use_case_not_allowed",
+        "message": f"model '{alias}' is for use case '{bound}', not '{said}'",
+    }
+
+
 def rejection(
     decision: PolicyDecision, attr: Attribution, model: str, policy_version: str
 ) -> tuple[int, dict[str, Any], dict[str, str]]:
